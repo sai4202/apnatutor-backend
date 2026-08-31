@@ -80,6 +80,24 @@
 			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
 			<version>${springdoc.version}</version>
 		</dependency>
+		<!--
+			JWT via Spring Security's own Nimbus support rather than a third-party
+			library. JJWT would drag in Jackson 2, while Boot 4 has moved to Jackson 3
+			(tools.jackson) - a conflict worth avoiding entirely. These are also
+			version-managed by the Boot parent.
+
+			-jose provides the encoder/decoder; -resource-server provides the
+			oauth2ResourceServer DSL that validates the Bearer token, so we do not
+			hand-roll an authentication filter.
+		-->
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-oauth2-jose</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-oauth2-resource-server</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator-test</artifactId>

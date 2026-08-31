@@ -1,10 +1,19 @@
 package com.apnatutor.common.config;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import com.apnatutor.common.web.ErrorCode;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.convert.converter.Converter;
+import org.springframework.http.MediaType;
+import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -37,9 +46,13 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
 	private final String frontendUrl;
+	private final Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter;
 
-	public SecurityConfig(@Value("${apnatutor.frontend-url}") String frontendUrl) {
+	public SecurityConfig(
+			@Value("${apnatutor.frontend-url}") String frontendUrl,
+			Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter) {
 		this.frontendUrl = frontendUrl;
+		this.jwtAuthenticationConverter = jwtAuthenticationConverter;
 	}
 
 	/**
@@ -76,10 +89,47 @@ public class SecurityConfig {
 								"/swagger-ui/**", "/swagger-ui.html")
 						.permitAll()
 						.anyRequest().authenticated())
+				// Bearer token validation. Spring's resource-server support extracts, verifies and
+				// populates the SecurityContext, so there is no hand-rolled authentication filter
+				// to get subtly wrong.
+				.oauth2ResourceServer(oauth2 -> oauth2
+						.jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter))
+						// Both handlers exist so auth failures come back as our ApiError shape with
+						// an ErrorCode, rather than Spring's default empty body.
+						.authenticationEntryPoint(this::writeUnauthenticated)
+						.accessDeniedHandler(this::writeForbidden))
+				.exceptionHandling(ex -> ex
+						.authenticationEntryPoint(this::writeUnauthenticated)
+						.accessDeniedHandler(this::writeForbidden))
 				.httpBasic(AbstractHttpConfigurer::disable)
 				.formLogin(AbstractHttpConfigurer::disable);
 
 		return http.build();
+	}
+
+	private void writeUnauthenticated(
+			HttpServletRequest request, HttpServletResponse response, Exception ex)
+			throws IOException {
+		writeError(response, ErrorCode.UNAUTHENTICATED, "Authentication required");
+	}
+
+	private void writeForbidden(
+			HttpServletRequest request, HttpServletResponse response, Exception ex)
+			throws IOException {
+		writeError(response, ErrorCode.FORBIDDEN, "You do not have permission to do that");
+	}
+
+	/**
+	 * Security-filter failures happen before {@code @RestControllerAdvice} can see them, so the
+	 * error body is written here by hand to keep every response in the same shape.
+	 */
+	private void writeError(HttpServletResponse response, ErrorCode code, String message)
+			throws IOException {
+		response.setStatus(code.status().value());
+		response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+		response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+		response.getWriter().write(
+				"{\"code\":\"%s\",\"message\":\"%s\"}".formatted(code.name(), message));
 	}
 
 	/**
@@ -93,7 +143,10 @@ public class SecurityConfig {
 		CorsConfiguration config = new CorsConfiguration();
 		config.setAllowedOrigins(List.of(frontendUrl));
 		config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-		config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Idempotency-Key"));
+		config.setAllowedHeaders(List.of(
+				"Authorization", "Content-Type", "Idempotency-Key",
+				// The refresh endpoint's CSRF marker — see RefreshCookie.
+				"X-Refresh-Request", "X-Correlation-Id"));
 		config.setExposedHeaders(List.of("Location"));
 		// Required for the refresh-token cookie in M1.
 		config.setAllowCredentials(true);

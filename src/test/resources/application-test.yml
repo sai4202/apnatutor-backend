@@ -23,8 +23,11 @@ spring:
     locations: classpath:db/migration
     # Safe here and ONLY here: this database is disposable by definition.
     # clean-disabled must never be false for dev or production datasources.
+    #
+    # The clean itself is performed by TestFlywayConfig, not by a property.
+    # Flyway's old clean-on-validation-error option was REMOVED in Flyway 9/10 —
+    # setting it here would be silently ignored, which is worse than not setting it.
     clean-disabled: false
-    clean-on-validation-error: true
 
 apnatutor:
   jwt:
