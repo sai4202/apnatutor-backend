@@ -2,7 +2,7 @@
 #
 # Testcontainers would normally do this, but this project has no Docker
 # (SOURCE_OF_TRUTH.md ADR #5), so we use a dedicated local database instead.
-# Create it once with:  psql -U postgres -f scripts/db-setup.sql
+# Create it once from backend/:  psql -U postgres -f scripts/db-setup.sql
 #
 # Flyway rebuilds the schema from scratch for each test run via clean+migrate,
 # so tests never inherit state from a previous run.

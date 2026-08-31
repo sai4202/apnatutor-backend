@@ -1,3 +1,13 @@
+# --- Secrets -----------------------------------------------------------------
+# Only .env.example is ever committed.
+.env
+.env.*
+!.env.example
+
+# --- Local file storage ------------------------------------------------------
+# APNATUTOR_STORAGE_PATH in dev; user uploads never belong in git.
+uploads/
+
 HELP.md
 target/
 .mvn/wrapper/maven-wrapper.jar

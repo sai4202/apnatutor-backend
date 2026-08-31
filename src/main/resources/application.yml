@@ -3,18 +3,17 @@ spring:
     name: apnatutor
 
   config:
-    # Loads the repo-root .env as a property source, so every ${VAR} below
-    # resolves from it. No extra dependency needed - Spring treats the file as
+    # Loads backend/.env as a property source, so every ${VAR} below resolves
+    # from it. No extra dependency needed - Spring treats the file as
     # .properties via the [.properties] extension hint.
     #
-    # Both paths are listed because the working directory differs depending on
-    # how you start the app: '../.env' when run from backend/ (the normal case,
-    # and how IntelliJ does it), './.env' when run from the repo root.
+    # This project is self-contained: the path never escapes backend/, so the
+    # backend can be cloned, built and run on its own. The frontend keeps its
+    # own .env.local and the two share nothing at the filesystem level.
+    #
     # 'optional:' means a missing file is not an error - real environments
     # supply these as actual environment variables instead of a file.
-    import:
-      - optional:file:./.env[.properties]
-      - optional:file:../.env[.properties]
+    import: optional:file:./.env[.properties]
 
   datasource:
     url: ${APNATUTOR_DB_URL:jdbc:postgresql://localhost:5432/apnatutor_dev}
@@ -112,6 +111,10 @@ apnatutor:
     webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
 
 logging:
+  # %X{correlationId} surfaces the ID set by CorrelationIdFilter, so every line of a
+  # request can be pulled together from the header returned to the caller.
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%X{correlationId:-}] %logger{36} - %msg%n"
   level:
     com.apnatutor: DEBUG
     org.flywaydb: INFO
