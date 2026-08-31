@@ -1,0 +1,117 @@
+spring:
+  application:
+    name: apnatutor
+
+  config:
+    # Loads the repo-root .env as a property source, so every ${VAR} below
+    # resolves from it. No extra dependency needed - Spring treats the file as
+    # .properties via the [.properties] extension hint.
+    #
+    # Both paths are listed because the working directory differs depending on
+    # how you start the app: '../.env' when run from backend/ (the normal case,
+    # and how IntelliJ does it), './.env' when run from the repo root.
+    # 'optional:' means a missing file is not an error - real environments
+    # supply these as actual environment variables instead of a file.
+    import:
+      - optional:file:./.env[.properties]
+      - optional:file:../.env[.properties]
+
+  datasource:
+    url: ${APNATUTOR_DB_URL:jdbc:postgresql://localhost:5432/apnatutor_dev}
+    username: ${APNATUTOR_DB_USER:apnatutor}
+    password: ${APNATUTOR_DB_PASSWORD:apnatutor}
+    hikari:
+      pool-name: apnatutor-pool
+      maximum-pool-size: 10
+
+  jpa:
+    hibernate:
+      # NEVER change this to 'update'. Flyway owns the schema. See SOURCE_OF_TRUTH.md section 7.
+      ddl-auto: validate
+    # Off deliberately: keeps transactions inside the service layer and stops
+    # lazy-loading from leaking into serialisation.
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+
+  jackson:
+    default-property-inclusion: non_null
+
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 10MB
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-message: never
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+
+apnatutor:
+  # Where the browser app runs; used for CORS and for links in emails/SMS.
+  frontend-url: ${APNATUTOR_FRONTEND_URL:http://localhost:3000}
+
+  jwt:
+    # Dev-only default. Production MUST supply APNATUTOR_JWT_SECRET (>= 32 bytes).
+    secret: ${APNATUTOR_JWT_SECRET:dev-only-insecure-secret-change-me-in-production-0123456789}
+    access-token-ttl: PT15M
+    refresh-token-ttl: P30D
+
+  otp:
+    ttl: PT10M
+    max-attempts: 5
+    max-sends-per-hour: 5
+
+  # Authoritative values live in SOURCE_OF_TRUTH.md section 3. Keep them in sync.
+  leads:
+    unlock-cap: 5
+    requirement-ttl: P30D
+    online-only-multiplier: 0.8
+
+  credits:
+    signup-bonus: 10
+    purchased-validity: P365D
+    bonus-validity: P90D
+    refund-window: P7D
+
+  storage:
+    # 'local' writes to the directory below; 's3' is wired in later for production.
+    provider: ${APNATUTOR_STORAGE_PROVIDER:local}
+    local-path: ${APNATUTOR_STORAGE_PATH:./uploads}
+
+  sms:
+    # 'console' logs the OTP to stdout instead of sending it. Never use in production.
+    provider: ${APNATUTOR_SMS_PROVIDER:console}
+
+  mail:
+    provider: ${APNATUTOR_MAIL_PROVIDER:console}
+
+  razorpay:
+    key-id: ${RAZORPAY_KEY_ID:}
+    key-secret: ${RAZORPAY_KEY_SECRET:}
+    webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
+
+logging:
+  level:
+    com.apnatutor: DEBUG
+    org.flywaydb: INFO

@@ -1,0 +1,43 @@
+# Integration tests run against a REAL local PostgreSQL database.
+#
+# Testcontainers would normally do this, but this project has no Docker
+# (SOURCE_OF_TRUTH.md ADR #5), so we use a dedicated local database instead.
+# Create it once with:  psql -U postgres -f scripts/db-setup.sql
+#
+# Flyway rebuilds the schema from scratch for each test run via clean+migrate,
+# so tests never inherit state from a previous run.
+
+spring:
+  datasource:
+    url: ${APNATUTOR_TEST_DB_URL:jdbc:postgresql://localhost:5432/apnatutor_test}
+    username: ${APNATUTOR_TEST_DB_USER:apnatutor}
+    password: ${APNATUTOR_TEST_DB_PASSWORD:apnatutor}
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # Safe here and ONLY here: this database is disposable by definition.
+    # clean-disabled must never be false for dev or production datasources.
+    clean-disabled: false
+    clean-on-validation-error: true
+
+apnatutor:
+  jwt:
+    secret: test-only-secret-not-used-anywhere-else-0123456789abcdef
+  sms:
+    provider: console
+  mail:
+    provider: console
+  storage:
+    provider: local
+    local-path: ./build/test-uploads
+
+logging:
+  level:
+    com.apnatutor: DEBUG
+    org.hibernate.SQL: DEBUG
