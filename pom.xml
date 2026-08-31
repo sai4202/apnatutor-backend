@@ -28,6 +28,12 @@
 	</scm>
 	<properties>
 		<java.version>26</java.version>
+		<!--
+			springdoc 3.x is the Spring Boot 4 line; the 2.x line targets Boot 3 /
+			Spring Framework 6 and will not work here. Not managed by the Boot parent,
+			so the version is pinned explicitly.
+		-->
+		<springdoc.version>3.1.0</springdoc.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -68,6 +74,11 @@
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>
 			<optional>true</optional>
+		</dependency>
+		<dependency>
+			<groupId>org.springdoc</groupId>
+			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+			<version>${springdoc.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>

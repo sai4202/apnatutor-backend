@@ -66,6 +66,19 @@ management:
       probes:
         enabled: true
 
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    # Turn OFF in production: an always-on schema dump is free reconnaissance.
+    enabled: ${APNATUTOR_API_DOCS_ENABLED:true}
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: ${APNATUTOR_API_DOCS_ENABLED:true}
+    operations-sorter: method
+    tags-sorter: alpha
+    # Don't send the docs page's own schema-fetch through "Try it out".
+    display-request-duration: true
+
 apnatutor:
   # Where the browser app runs; used for CORS and for links in emails/SMS.
   frontend-url: ${APNATUTOR_FRONTEND_URL:http://localhost:3000}

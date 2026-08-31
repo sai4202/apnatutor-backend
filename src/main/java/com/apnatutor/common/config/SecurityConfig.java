@@ -69,7 +69,11 @@ public class SecurityConfig {
 						// Contact details are masked in the response, not protected by this layer.
 						.requestMatchers("/api/v1/public/**").permitAll()
 						.requestMatchers("/api/v1/auth/**").permitAll()
-						.requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html")
+						// API docs. Disabled entirely in production via
+						// APNATUTOR_API_DOCS_ENABLED — a public schema dump is free
+						// reconnaissance for anyone probing the API.
+						.requestMatchers("/v3/api-docs", "/v3/api-docs/**", "/v3/api-docs.yaml",
+								"/swagger-ui/**", "/swagger-ui.html")
 						.permitAll()
 						.anyRequest().authenticated())
 				.httpBasic(AbstractHttpConfigurer::disable)
