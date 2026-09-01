@@ -77,6 +77,7 @@ class LeadUnlockConcurrencyTest extends AbstractIntegrationTest {
 				"ONLINE", 300_000L, "PER_MONTH", null, null, null,
 				"Concurrency test requirement",
 				costCredits,
+				Requirement.DEFAULT_UNLOCK_CAP,
 				clock.instant().plus(Duration.ofDays(30))));
 	}
 
@@ -143,14 +144,14 @@ class LeadUnlockConcurrencyTest extends AbstractIntegrationTest {
 				unlocks.countByRequirementIdAndStatus(requirement.getId(), UnlockStatus.ACTIVE);
 		assertThat(actualUnlocks)
 				.as("unlock records for one requirement")
-				.isEqualTo(Requirement.UNLOCK_CAP);
+				.isEqualTo(Requirement.DEFAULT_UNLOCK_CAP);
 
-		assertThat(succeeded.get()).isEqualTo(Requirement.UNLOCK_CAP);
-		assertThat(rejected.get()).isEqualTo(contenders - Requirement.UNLOCK_CAP);
+		assertThat(succeeded.get()).isEqualTo(Requirement.DEFAULT_UNLOCK_CAP);
+		assertThat(rejected.get()).isEqualTo(contenders - Requirement.DEFAULT_UNLOCK_CAP);
 
 		// The counter matches reality, so the feed and the cap check agree with the records.
 		Requirement after = requirements.findById(requirement.getId()).orElseThrow();
-		assertThat(after.getUnlockCount()).isEqualTo(Requirement.UNLOCK_CAP);
+		assertThat(after.getUnlockCount()).isEqualTo(Requirement.DEFAULT_UNLOCK_CAP);
 		assertThat(after.getStatus().name()).isEqualTo("CAPPED");
 
 		// NOBODY WHO LOST WAS CHARGED. Each tutor started with 20 credits; a winner has 15, a
@@ -173,7 +174,7 @@ class LeadUnlockConcurrencyTest extends AbstractIntegrationTest {
 
 		assertThat(charged)
 				.as("exactly as many tutors charged as got a lead")
-				.isEqualTo(Requirement.UNLOCK_CAP);
+				.isEqualTo(Requirement.DEFAULT_UNLOCK_CAP);
 	}
 
 	@Test
@@ -253,7 +254,7 @@ class LeadUnlockConcurrencyTest extends AbstractIntegrationTest {
 		// The slot is freed, so a bad lead does not permanently consume one of the five.
 		Requirement after = requirements.findById(requirement.getId()).orElseThrow();
 		assertThat(after.getUnlockCount()).isZero();
-		assertThat(after.remainingSlots()).isEqualTo(Requirement.UNLOCK_CAP);
+		assertThat(after.remainingSlots()).isEqualTo(Requirement.DEFAULT_UNLOCK_CAP);
 	}
 
 	@Test

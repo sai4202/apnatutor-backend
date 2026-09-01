@@ -13,6 +13,7 @@ import com.apnatutor.notification.NotificationService;
 import com.apnatutor.notification.domain.NotificationType;
 import com.apnatutor.requirement.RequirementRepository;
 import com.apnatutor.requirement.domain.Requirement;
+import com.apnatutor.settings.SettingsService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -49,13 +50,14 @@ public class LeadUnlockService {
 
 	private static final Logger log = LoggerFactory.getLogger(LeadUnlockService.class);
 
-	/** Below this, a tutor is warned they will soon start missing leads. */
-	private static final int LOW_BALANCE_THRESHOLD = 10;
+	/** Fallback if the setting is missing; the live value is admin-configurable. */
+	private static final int DEFAULT_LOW_BALANCE_THRESHOLD = 10;
 
 	private final RequirementRepository requirements;
 	private final LeadUnlockRepository unlocks;
 	private final CreditLedger ledger;
 	private final NotificationService notifications;
+	private final SettingsService settings;
 	private final Clock clock;
 
 	public LeadUnlockService(
@@ -63,11 +65,13 @@ public class LeadUnlockService {
 			LeadUnlockRepository unlocks,
 			CreditLedger ledger,
 			NotificationService notifications,
+			SettingsService settings,
 			Clock clock) {
 		this.requirements = requirements;
 		this.unlocks = unlocks;
 		this.ledger = ledger;
 		this.notifications = notifications;
+		this.settings = settings;
 		this.clock = clock;
 	}
 
@@ -94,7 +98,7 @@ public class LeadUnlockService {
 					"You have already unlocked this enquiry.");
 		}
 
-		if (requirement.getUnlockCount() >= Requirement.UNLOCK_CAP) {
+		if (requirement.getUnlockCount() >= requirement.getUnlockCap()) {
 			// NO CREDITS TAKEN. Charging for a lead that cannot be delivered is the fastest way
 			// to lose a tutor permanently.
 			throw new ApiException(ErrorCode.LEAD_UNLOCK_CAP_REACHED,
@@ -159,7 +163,10 @@ public class LeadUnlockService {
 				requirement.getId());
 
 		int remaining = ledger.balanceOf(tutorUserId);
-		if (remaining < LOW_BALANCE_THRESHOLD) {
+		int threshold = settings.intValue(
+				SettingsService.LOW_BALANCE_THRESHOLD, DEFAULT_LOW_BALANCE_THRESHOLD);
+
+		if (remaining < threshold) {
 			notifications.notify(
 					tutorUserId,
 					NotificationType.LOW_CREDIT_BALANCE,

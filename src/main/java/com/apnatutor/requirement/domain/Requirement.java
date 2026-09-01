@@ -21,8 +21,15 @@ import jakarta.persistence.Table;
 @Table(name = "requirements")
 public class Requirement {
 
-	/** SOURCE_OF_TRUTH.md §3.2. The 6th tutor is refused. */
-	public static final int UNLOCK_CAP = 5;
+	/**
+	 * Fallback when no cap is configured. The live value is admin-configurable
+	 * ({@code lead.unlock_cap}) and is <strong>locked onto each requirement at creation</strong>.
+	 *
+	 * <p>Locked, not read live, for the same reason the price is: a parent posting today is
+	 * promised at most this many calls. Raising the setting later must not silently reopen their
+	 * enquiry and send two more tutors after them.
+	 */
+	public static final int DEFAULT_UNLOCK_CAP = 5;
 
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -80,6 +87,10 @@ public class Requirement {
 	@Column(name = "unlock_count", nullable = false)
 	private int unlockCount;
 
+	/** Locked at creation alongside the price. Not updatable, for the same reason. */
+	@Column(name = "unlock_cap", nullable = false, updatable = false)
+	private int unlockCap = DEFAULT_UNLOCK_CAP;
+
 	@Column(name = "expires_at", nullable = false)
 	private Instant expiresAt;
 
@@ -107,9 +118,11 @@ public class Requirement {
 			String genderPreference,
 			String description,
 			int unlockCostCredits,
+			int unlockCap,
 			Instant expiresAt) {
 
 		Requirement requirement = new Requirement();
+		requirement.unlockCap = unlockCap;
 		requirement.studentId = studentId;
 		requirement.subjectId = subjectId;
 		requirement.gradeLevelId = gradeLevelId;
@@ -131,7 +144,7 @@ public class Requirement {
 	/** Whether a tutor may still unlock this. */
 	public boolean isUnlockable(Instant now) {
 		return status == RequirementStatus.OPEN
-				&& unlockCount < UNLOCK_CAP
+				&& unlockCount < unlockCap
 				&& now.isBefore(expiresAt);
 	}
 
@@ -141,11 +154,11 @@ public class Requirement {
 	 * <p>Called with the row locked, so the count cannot be stale.
 	 */
 	public void recordUnlock() {
-		if (unlockCount >= UNLOCK_CAP) {
+		if (unlockCount >= unlockCap) {
 			throw new IllegalStateException("This requirement already has the maximum responses");
 		}
 		unlockCount++;
-		if (unlockCount >= UNLOCK_CAP) {
+		if (unlockCount >= unlockCap) {
 			// Removes it from every tutor's feed immediately, rather than letting five more
 			// tutors open a lead they cannot buy.
 			status = RequirementStatus.CAPPED;
@@ -157,7 +170,7 @@ public class Requirement {
 		if (unlockCount > 0) {
 			unlockCount--;
 		}
-		if (status == RequirementStatus.CAPPED && unlockCount < UNLOCK_CAP) {
+		if (status == RequirementStatus.CAPPED && unlockCount < unlockCap) {
 			status = RequirementStatus.OPEN;
 		}
 	}
@@ -256,7 +269,12 @@ public class Requirement {
 	}
 
 	public int remainingSlots() {
-		return Math.max(UNLOCK_CAP - unlockCount, 0);
+		return Math.max(unlockCap - unlockCount, 0);
+	}
+
+	/** The cap this requirement was posted under, not the current setting. */
+	public int getUnlockCap() {
+		return unlockCap;
 	}
 
 	public Instant getExpiresAt() {

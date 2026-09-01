@@ -12,8 +12,9 @@ import com.apnatutor.catalog.SubjectRepository;
 import com.apnatutor.catalog.domain.Subject;
 import com.apnatutor.common.exception.ApiException;
 import com.apnatutor.common.web.ErrorCode;
-import com.apnatutor.lead.LeadPricing;
+import com.apnatutor.lead.LeadPricingService;
 import com.apnatutor.requirement.domain.Requirement;
+import com.apnatutor.settings.SettingsService;
 import com.apnatutor.requirement.dto.RequirementDtos.PostRequirementRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,14 +31,16 @@ public class RequirementService {
 
 	private static final Logger log = LoggerFactory.getLogger(RequirementService.class);
 
-	/** SOURCE_OF_TRUTH.md §3.4. */
-	private static final Duration LIFETIME = Duration.ofDays(30);
+	/** Fallback if the setting is missing. SOURCE_OF_TRUTH.md §3.4. */
+	private static final int DEFAULT_LIFETIME_DAYS = 30;
 
 	private final RequirementRepository requirements;
 	private final SubjectRepository subjects;
 	private final LocationRepository locations;
 	private final GradeLevelRepository gradeLevels;
 	private final BoardRepository boards;
+	private final LeadPricingService pricing;
+	private final SettingsService settings;
 	private final Clock clock;
 
 	public RequirementService(
@@ -46,13 +49,23 @@ public class RequirementService {
 			LocationRepository locations,
 			GradeLevelRepository gradeLevels,
 			BoardRepository boards,
+			LeadPricingService pricing,
+			SettingsService settings,
 			Clock clock) {
 		this.requirements = requirements;
 		this.subjects = subjects;
 		this.locations = locations;
 		this.gradeLevels = gradeLevels;
 		this.boards = boards;
+		this.pricing = pricing;
+		this.settings = settings;
 		this.clock = clock;
+	}
+
+	/** Admin-configurable, read at posting time so a change applies to new enquiries. */
+	private Duration lifetime() {
+		return settings.durationDays(
+				SettingsService.REQUIREMENT_LIFETIME_DAYS, DEFAULT_LIFETIME_DAYS);
 	}
 
 	@Transactional
@@ -72,8 +85,12 @@ public class RequirementService {
 		validateCatalogReferences(request);
 
 		// PRICED ONCE, HERE (SoT §3.1). Never recomputed at unlock time: a tutor shown a lead at
-		// 5 credits must be charged 5, whatever the bands say by the time they tap.
-		int cost = LeadPricing.creditsFor(request.budgetAmountPaise(), request.mode());
+		// 5 credits must be charged 5, whatever an admin repriced the bands to in between.
+		int cost = pricing.creditsFor(request.budgetAmountPaise(), request.mode());
+
+		// The cap is locked here for the same reason. A parent posting today is promised at most
+		// this many calls; raising the setting later must not reopen their enquiry.
+		int cap = pricing.currentUnlockCap();
 
 		Requirement requirement = requirements.save(Requirement.post(
 				studentId,
@@ -89,7 +106,8 @@ public class RequirementService {
 				request.genderPreference(),
 				request.description(),
 				cost,
-				clock.instant().plus(LIFETIME)));
+				cap,
+				clock.instant().plus(lifetime())));
 
 		log.info("Requirement posted: id={} student={} subject={} cost={} credits",
 				requirement.getId(), studentId, subject.getSlug(), cost);
@@ -181,7 +199,7 @@ public class RequirementService {
 
 	/** What a lead would cost, so the post form can show it before submitting. */
 	public int quotePrice(Long budgetPaise, String mode) {
-		return LeadPricing.creditsFor(budgetPaise, mode);
+		return pricing.creditsFor(budgetPaise, mode);
 	}
 
 	Instant now() {
