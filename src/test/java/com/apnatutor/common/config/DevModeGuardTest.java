@@ -19,6 +19,11 @@ import org.springframework.mock.env.MockEnvironment;
 class DevModeGuardTest {
 
 	private static AppProperties props(boolean devEnabled, String smsProvider) {
+		return props(devEnabled, smsProvider, new AppProperties.Razorpay("", "", ""));
+	}
+
+	private static AppProperties props(
+			boolean devEnabled, String smsProvider, AppProperties.Razorpay razorpay) {
 		return new AppProperties(
 				"http://localhost:3000",
 				new AppProperties.Jwt(
@@ -28,7 +33,12 @@ class DevModeGuardTest {
 				new AppProperties.Otp(Duration.ofMinutes(10), 5, 5),
 				new AppProperties.Sms(smsProvider),
 				new AppProperties.Storage("local", "./uploads"),
-				new AppProperties.Dev(devEnabled, "123456"));
+				new AppProperties.Dev(devEnabled, "123456"),
+				razorpay);
+	}
+
+	private static AppProperties.Razorpay configuredRazorpay() {
+		return new AppProperties.Razorpay("rzp_test_key", "secret", "webhook-secret");
 	}
 
 	@Test
@@ -59,12 +69,53 @@ class DevModeGuardTest {
 	}
 
 	@Test
-	@DisplayName("dev mode off is fine in any configuration")
+	@DisplayName("a fully configured production setup starts")
 	void allowsProductionConfiguration() {
 		MockEnvironment prod = new MockEnvironment();
 		prod.setActiveProfiles("prod");
 
-		assertThatCode(() -> new DevModeGuard(props(false, "msg91"), prod).verify())
+		assertThatCode(() -> new DevModeGuard(
+				props(false, "msg91", configuredRazorpay()), prod).verify())
 				.doesNotThrowAnyException();
+	}
+
+	@Test
+	@DisplayName("production without payment credentials refuses to start")
+	void refusesProductionWithoutPaymentProvider() {
+		MockEnvironment prod = new MockEnvironment();
+		prod.setActiveProfiles("prod");
+
+		// The dangerous one. Dev mode is off and SMS is real, so nothing else about this
+		// deployment looks wrong — but with no Razorpay keys the stub gateway is live and grants
+		// credits for money that never moved. Nothing would surface that until the accounts were
+		// reconciled, which is exactly why it has to fail at startup.
+		assertThatThrownBy(() -> new DevModeGuard(props(false, "msg91"), prod).verify())
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("REFUSING TO START")
+				.hasMessageContaining("Razorpay");
+	}
+
+	@Test
+	@DisplayName("missing payment credentials are fine outside production")
+	void allowsStubGatewayLocally() {
+		// The whole point of the stub: the purchase flow is buildable and testable before anyone
+		// opens a Razorpay account.
+		assertThatCode(() -> new DevModeGuard(props(true, "console"), new MockEnvironment()).verify())
+				.doesNotThrowAnyException();
+	}
+
+	@Test
+	@DisplayName("a Razorpay key id without a secret does not count as configured")
+	void halfConfiguredRazorpayIsNotConfigured() {
+		MockEnvironment prod = new MockEnvironment();
+		prod.setActiveProfiles("prod");
+
+		// A key id alone signs nothing. Treating it as configured would wire the real gateway with
+		// no way to authenticate, which fails later and far less clearly than this does.
+		assertThatThrownBy(() -> new DevModeGuard(
+				props(false, "msg91", new AppProperties.Razorpay("rzp_test_key", "", "")), prod)
+				.verify())
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("REFUSING TO START");
 	}
 }

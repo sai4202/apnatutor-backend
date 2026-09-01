@@ -32,7 +32,8 @@ class LocalFileStorageTest {
 				new AppProperties.Otp(Duration.ofMinutes(10), 5, 5),
 				new AppProperties.Sms("console"),
 				new AppProperties.Storage("local", root.toString()),
-				new AppProperties.Dev(false, "123456"));
+				new AppProperties.Dev(false, "123456"),
+				new AppProperties.Razorpay("", "", ""));
 	}
 
 	private static byte[] jpeg(int sizeBytes) {

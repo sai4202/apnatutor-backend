@@ -16,5 +16,18 @@ public enum NotificationType {
 	VERIFICATION_REJECTED,
 
 	/** A student: your enquiry is about to time out. */
-	REQUIREMENT_EXPIRING
+	REQUIREMENT_EXPIRING,
+
+	/** A tutor: the free credits for verifying your ID have landed. */
+	SIGNUP_BONUS_GRANTED,
+
+	/** A tutor: your purchase went through and the credits are in your wallet. */
+	CREDITS_PURCHASED,
+
+	/** A tutor: credits are about to lapse. Sent while there is still time to use them. */
+	CREDITS_EXPIRING,
+
+	/** A tutor: a disputed lead was refunded, or the dispute was declined. */
+	REFUND_APPROVED,
+	REFUND_REJECTED
 }

@@ -87,6 +87,13 @@ public class SecurityConfig {
 						// reachable only through /api/v1/admin/files/**, which is admin-gated.
 						.requestMatchers("/api/v1/public/**").permitAll()
 						.requestMatchers("/api/v1/auth/**").permitAll()
+						// Payment provider callbacks. Unauthenticated by necessity — Razorpay
+						// holds no bearer token — so the HMAC signature is the ONLY thing
+						// standing between this endpoint and free credits for anyone who finds
+						// the URL. PaymentWebhookService fails closed: a missing secret, a
+						// missing header or a mismatch all reject, and every attempt is recorded
+						// with its raw body.
+						.requestMatchers("/api/v1/webhooks/**").permitAll()
 						// API docs. Disabled entirely in production via
 						// APNATUTOR_API_DOCS_ENABLED — a public schema dump is free
 						// reconnaissance for anyone probing the API.

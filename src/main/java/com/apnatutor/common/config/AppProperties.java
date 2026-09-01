@@ -28,7 +28,8 @@ public record AppProperties(
 		@Valid @NotNull Otp otp,
 		@Valid @NotNull Sms sms,
 		@Valid @NotNull Storage storage,
-		@Valid @NotNull Dev dev) {
+		@Valid @NotNull Dev dev,
+		@Valid @NotNull Razorpay razorpay) {
 
 	public record Jwt(
 			@NotBlank String secret,
@@ -93,5 +94,37 @@ public record AppProperties(
 			/** The fixed code accepted for seeded test accounts. Six digits. */
 			@Pattern(regexp = "\\d{6}", message = "dev.test-account-code must be 6 digits")
 			String testAccountCode) {
+	}
+
+	/**
+	 * Razorpay credentials.
+	 *
+	 * <p>All three are blank by default and the application starts fine without them — it falls back
+	 * to {@code StubPaymentGateway}, so the whole purchase flow can be built and tested before
+	 * anyone opens a Razorpay account. {@code DevModeGuard} is what stops that stub reaching
+	 * production.
+	 *
+	 * <p>Not validated as {@code @NotBlank}: a blank key is a legitimate state meaning "no provider
+	 * configured", and rejecting it at startup would make the backend unrunnable for anyone without
+	 * credentials.
+	 */
+	public record Razorpay(String keyId, String keySecret, String webhookSecret) {
+
+		/** True once real credentials exist. Both are needed: an id alone signs nothing. */
+		public boolean isConfigured() {
+			return keyId != null && !keyId.isBlank()
+					&& keySecret != null && !keySecret.isBlank();
+		}
+
+		/**
+		 * True when webhooks can actually be verified.
+		 *
+		 * <p>Separate from {@link #isConfigured()} because Razorpay issues the webhook secret
+		 * separately from the API key, and an unverifiable webhook endpoint is worse than none —
+		 * it grants credits to anyone who can POST to it.
+		 */
+		public boolean canVerifyWebhooks() {
+			return webhookSecret != null && !webhookSecret.isBlank();
+		}
 	}
 }

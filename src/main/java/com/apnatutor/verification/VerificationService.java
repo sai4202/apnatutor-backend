@@ -8,6 +8,7 @@ import java.util.Set;
 import com.apnatutor.common.exception.ApiException;
 import com.apnatutor.common.web.ErrorCode;
 import com.apnatutor.storage.FileKind;
+import com.apnatutor.billing.SignupBonusService;
 import com.apnatutor.storage.FileStorage;
 import com.apnatutor.user.UserRepository;
 import com.apnatutor.user.domain.User;
@@ -44,16 +45,19 @@ public class VerificationService {
 	private final VerificationRepository verifications;
 	private final UserRepository users;
 	private final FileStorage fileStorage;
+	private final SignupBonusService signupBonus;
 	private final Clock clock;
 
 	public VerificationService(
 			VerificationRepository verifications,
 			UserRepository users,
 			FileStorage fileStorage,
+			SignupBonusService signupBonus,
 			Clock clock) {
 		this.verifications = verifications;
 		this.users = users;
 		this.fileStorage = fileStorage;
+		this.signupBonus = signupBonus;
 		this.clock = clock;
 	}
 
@@ -109,6 +113,12 @@ public class VerificationService {
 		// somebody may have to answer for later. A full audit table arrives at M5-08.
 		log.info("Verification APPROVED: id={} user={} type={} by admin={}",
 				verificationId, verification.getUserId(), verification.getType(), adminUserId);
+
+		// SOURCE_OF_TRUTH.md §3.3. Runs in its own transaction, so a bonus that cannot be granted
+		// — already given, settings row missing — never rolls back the admin's trust decision.
+		if (levelFor(verification.getUserId()).isAtLeast(VerificationLevel.ID_VERIFIED)) {
+			signupBonus.grantIfEarned(verification.getUserId());
+		}
 
 		return verification;
 	}

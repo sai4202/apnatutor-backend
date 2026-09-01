@@ -61,7 +61,18 @@ public enum ErrorCode {
 	LEAD_ALREADY_UNLOCKED(HttpStatus.CONFLICT),
 	INSUFFICIENT_CREDITS(HttpStatus.PAYMENT_REQUIRED),
 	REQUIREMENT_NOT_OPEN(HttpStatus.CONFLICT),
-	PAYMENT_VERIFICATION_FAILED(HttpStatus.BAD_REQUEST);
+	/** A signature did not verify — a webhook, or the checkout callback. */
+	PAYMENT_VERIFICATION_FAILED(HttpStatus.BAD_REQUEST),
+	/**
+	 * The payment provider could not be reached, or refused the request.
+	 *
+	 * <p>Distinct from a declined card: nothing was charged, and retrying is the right advice.
+	 * 502 rather than 500 because the fault is upstream, which is what a client retry policy and an
+	 * alerting rule both need to know.
+	 */
+	PAYMENT_GATEWAY_ERROR(HttpStatus.BAD_GATEWAY),
+	/** A dispute was raised outside the refund window, or on a lead already disputed. */
+	REFUND_NOT_ALLOWED(HttpStatus.CONFLICT);
 
 	private final HttpStatus status;
 
