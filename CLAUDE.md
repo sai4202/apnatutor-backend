@@ -31,6 +31,7 @@ Boot 4 renamed things, so most tutorials and Boot 3 answers will not match this 
 - Web starter is `spring-boot-starter-webmvc`, **not** `spring-boot-starter-web`.
 - Test support is split per-starter (`spring-boot-starter-webmvc-test`, `-data-jpa-test`, …) instead of one `spring-boot-starter-test`.
 - **`CorsConfigurationSource` cannot be injected by type** — `mvcHandlerMappingIntrospector` also implements it, so injection fails with `NoUniqueBeanDefinitionException`. Call the `corsConfigurationSource()` bean method directly. Watch for the same trap with other types Spring MVC implements incidentally.
+- **Jackson 3 fails on null for primitives.** Boot 4 ships Jackson 3, which flipped `FAIL_ON_NULL_FOR_PRIMITIVES` to `true`. An omitted `boolean` or `int` in a request body is now a hard parse error, surfacing as `MALFORMED_REQUEST` rather than defaulting to `false`/`0` as it did under Jackson 2. **Box the primitives in request DTOs** (`Boolean`, `Integer`) and default them explicitly in the service — that keeps "absent" representable without disabling the check globally.
 - **springdoc must be 3.x**, pinned via the `springdoc.version` property. The 3.x line is the Boot 4 line; 2.x targets Boot 3 / Framework 6 and will not work here. Most tutorials still say 2.x.
 - **Checking whether a dependency version exists:** read `https://repo1.maven.org/maven2/<group path>/<artifact>/maven-metadata.xml`. The `search.maven.org/solrsearch` API caches `latestVersion` and lags real releases — it already caused one wrong "unavailable" call on this project.
 
