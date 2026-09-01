@@ -1,6 +1,10 @@
 package com.apnatutor.user;
 
+import java.io.IOException;
+
+import com.apnatutor.common.exception.ApiException;
 import com.apnatutor.common.security.CurrentUser;
+import com.apnatutor.common.web.ErrorCode;
 import com.apnatutor.user.dto.TutorProfileDtos.OwnerView;
 import com.apnatutor.user.dto.TutorProfileDtos.PublicView;
 import com.apnatutor.user.dto.TutorProfileDtos.QualificationRequest;
@@ -12,6 +16,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -21,7 +26,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * Tutor profile management, for the tutor who owns it.
@@ -111,6 +118,50 @@ public class TutorProfileController {
 	public ResponseEntity<OwnerView> removeQualification(
 			CurrentUser currentUser, @PathVariable Long id) {
 		return ResponseEntity.ok(service.removeQualification(currentUser.userId(), id));
+	}
+
+	@PostMapping(value = "/tutor/profile/photo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+	@PreAuthorize("hasRole('TUTOR')")
+	@SecurityRequirement(name = "bearerAuth")
+	@Operation(
+			summary = "Upload a profile photo",
+			description = "JPG, PNG or WebP, up to 5 MB. The file type is determined from the "
+					+ "bytes, not the filename or the declared content type.")
+	public ResponseEntity<OwnerView> uploadPhoto(
+			CurrentUser currentUser, @RequestParam("file") MultipartFile file) throws IOException {
+		return ResponseEntity.ok(
+				service.updatePhoto(currentUser.userId(), readUpload(file)));
+	}
+
+	@PostMapping(
+			value = "/tutor/profile/qualifications/{id}/document",
+			consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+	@PreAuthorize("hasRole('TUTOR')")
+	@SecurityRequirement(name = "bearerAuth")
+	@Operation(
+			summary = "Attach a certificate to a qualification",
+			description = "JPG, PNG or PDF, up to 10 MB. Stored privately — only an admin can ever "
+					+ "read it back. Uploading a new document clears any previous approval.")
+	public ResponseEntity<OwnerView> uploadQualificationDocument(
+			CurrentUser currentUser,
+			@PathVariable Long id,
+			@RequestParam("file") MultipartFile file) throws IOException {
+		return ResponseEntity.ok(
+				service.attachQualificationDocument(currentUser.userId(), id, readUpload(file)));
+	}
+
+	/**
+	 * Reads an upload into memory.
+	 *
+	 * <p>Fine at these sizes — the largest accepted file is 10 MB and Spring's multipart limit
+	 * rejects anything bigger before this runs. Streaming would matter if the cap ever rose to
+	 * video.
+	 */
+	private static byte[] readUpload(MultipartFile file) throws IOException {
+		if (file == null || file.isEmpty()) {
+			throw new ApiException(ErrorCode.VALIDATION_FAILED, "Choose a file to upload.");
+		}
+		return file.getBytes();
 	}
 
 	@PostMapping("/tutor/profile/publish")

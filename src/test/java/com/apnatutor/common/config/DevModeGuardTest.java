@@ -27,6 +27,7 @@ class DevModeGuardTest {
 						Duration.ofDays(30)),
 				new AppProperties.Otp(Duration.ofMinutes(10), 5, 5),
 				new AppProperties.Sms(smsProvider),
+				new AppProperties.Storage("local", "./uploads"),
 				new AppProperties.Dev(devEnabled, "123456"));
 	}
 

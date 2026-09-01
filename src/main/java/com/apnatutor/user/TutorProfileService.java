@@ -17,6 +17,8 @@ import com.apnatutor.catalog.domain.Location;
 import com.apnatutor.catalog.domain.Subject;
 import com.apnatutor.common.exception.ApiException;
 import com.apnatutor.common.web.ErrorCode;
+import com.apnatutor.storage.FileKind;
+import com.apnatutor.storage.FileStorage;
 import com.apnatutor.user.domain.TutorLocation;
 import com.apnatutor.user.domain.TutorProfile;
 import com.apnatutor.user.domain.TutorQualification;
@@ -53,6 +55,7 @@ public class TutorProfileService {
 	private final LocationRepository locations;
 	private final GradeLevelRepository gradeLevels;
 	private final BoardRepository boards;
+	private final FileStorage fileStorage;
 	private final Clock clock;
 
 	public TutorProfileService(
@@ -61,12 +64,14 @@ public class TutorProfileService {
 			LocationRepository locations,
 			GradeLevelRepository gradeLevels,
 			BoardRepository boards,
+			FileStorage fileStorage,
 			Clock clock) {
 		this.profiles = profiles;
 		this.subjects = subjects;
 		this.locations = locations;
 		this.gradeLevels = gradeLevels;
 		this.boards = boards;
+		this.fileStorage = fileStorage;
 		this.clock = clock;
 	}
 
@@ -164,6 +169,59 @@ public class TutorProfileService {
 		}
 
 		return saveAndView(profile);
+	}
+
+	/**
+	 * Replaces the tutor's profile photo.
+	 *
+	 * <p>The old file is deleted after the new key is persisted, not before. If the write fails the
+	 * tutor keeps the photo they had, rather than ending up with a profile pointing at a file that
+	 * no longer exists.
+	 */
+	@Transactional
+	public OwnerView updatePhoto(Long userId, byte[] content) {
+		TutorProfile profile = getOrCreate(userId);
+		String previousKey = profile.getPhotoUrl();
+
+		FileStorage.StoredFile stored = fileStorage.store(content, FileKind.PROFILE_PHOTO);
+		profile.setPhotoUrl(stored.storageKey());
+		OwnerView view = saveAndView(profile);
+
+		if (previousKey != null && !previousKey.isBlank()) {
+			fileStorage.delete(previousKey);
+		}
+		return view;
+	}
+
+	/**
+	 * Attaches a supporting document to a qualification.
+	 *
+	 * <p>Uploading a new document clears any previous approval — see {@code
+	 * TutorQualification.attachDocument}. Without that, a tutor could get a blank page approved and
+	 * then swap in whatever they liked.
+	 */
+	@Transactional
+	public OwnerView attachQualificationDocument(
+			Long userId, Long qualificationId, byte[] content) {
+		TutorProfile profile = getOrCreate(userId);
+
+		TutorQualification qualification = profile.getQualifications().stream()
+				.filter(q -> q.getId().equals(qualificationId))
+				.findFirst()
+				// Scoped to this tutor's own qualifications, so one tutor cannot attach a document
+				// to another's by guessing an id.
+				.orElseThrow(() -> ApiException.notFound("Qualification"));
+
+		String previousKey = qualification.getDocumentUrl();
+		FileStorage.StoredFile stored =
+				fileStorage.store(content, FileKind.EDUCATION_DOCUMENT);
+		qualification.attachDocument(stored.storageKey());
+
+		OwnerView view = saveAndView(profile);
+		if (previousKey != null && !previousKey.isBlank()) {
+			fileStorage.delete(previousKey);
+		}
+		return view;
 	}
 
 	@Transactional

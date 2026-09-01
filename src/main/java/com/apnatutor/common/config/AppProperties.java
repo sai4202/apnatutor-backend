@@ -27,6 +27,7 @@ public record AppProperties(
 		@Valid @NotNull Jwt jwt,
 		@Valid @NotNull Otp otp,
 		@Valid @NotNull Sms sms,
+		@Valid @NotNull Storage storage,
 		@Valid @NotNull Dev dev) {
 
 	public record Jwt(
@@ -52,6 +53,14 @@ public record AppProperties(
 			@NotNull Duration ttl,
 			@Min(1) int maxAttempts,
 			@Min(1) int maxSendsPerHour) {
+	}
+
+	/**
+	 * Where uploads live. {@code local} writes to {@code localPath}; S3-compatible object storage
+	 * replaces it at {@code M6-10.3}, since local disk does not survive a redeploy on most hosts
+	 * and cannot be shared between instances.
+	 */
+	public record Storage(@NotBlank String provider, @NotBlank String localPath) {
 	}
 
 	public record Sms(@NotBlank String provider) {

@@ -78,8 +78,13 @@ public class SecurityConfig {
 				.authorizeHttpRequests(auth -> auth
 						.requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info")
 						.permitAll()
-						// Public marketplace browsing: search, tutor profiles, catalog, SEO pages.
-						// Contact details are masked in the response, not protected by this layer.
+						// Public marketplace browsing: search, tutor profiles, catalog, SEO pages,
+						// and profile photos. Contact details are masked in the response, not
+						// protected by this layer.
+						//
+						// Note /api/v1/public/files/** serves ONLY file kinds marked public —
+						// FileController refuses anything else with a 404. Private documents are
+						// reachable only through /api/v1/admin/files/**, which is admin-gated.
 						.requestMatchers("/api/v1/public/**").permitAll()
 						.requestMatchers("/api/v1/auth/**").permitAll()
 						// API docs. Disabled entirely in production via

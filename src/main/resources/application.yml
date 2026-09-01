@@ -46,8 +46,11 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 5MB
-      max-request-size: 10MB
+      # The outer limit. Per-kind caps are stricter and enforced in FileKind —
+      # 5MB for a photo, 10MB for a document — so this only stops a request that
+      # is oversized before any application code sees it.
+      max-file-size: 10MB
+      max-request-size: 12MB
 
 server:
   port: ${SERVER_PORT:8080}
