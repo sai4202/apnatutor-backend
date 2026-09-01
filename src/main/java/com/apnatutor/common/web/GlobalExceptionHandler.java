@@ -15,6 +15,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
@@ -74,6 +75,38 @@ public class GlobalExceptionHandler {
 		log.debug("Malformed request body: {}", ex.getMessage());
 		return ResponseEntity.status(ErrorCode.MALFORMED_REQUEST.status())
 				.body(ApiError.of(ErrorCode.MALFORMED_REQUEST, "Request body could not be parsed"));
+	}
+
+	/**
+	 * A query parameter that cannot be converted to its declared type — an unknown enum value, or a
+	 * letter where a number was expected.
+	 *
+	 * <p>Without this the catch-all below turns every such request into a 500, which is both wrong
+	 * (the caller's input was invalid, nothing failed on our side) and unhelpful, since a 500 tells
+	 * them nothing about what to fix.
+	 *
+	 * <p>The rejected value is not echoed back. It is caller-controlled text, and reflecting it into
+	 * a response is how a well-meaning error message becomes an injection vector.
+	 */
+	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
+	public ResponseEntity<ApiError> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+		log.debug("Bad parameter '{}': {}", ex.getName(), ex.getMessage());
+
+		Map<String, String> fieldErrors = Map.of(ex.getName(), describeExpected(ex));
+		return ResponseEntity.status(ErrorCode.VALIDATION_FAILED.status())
+				.body(ApiError.validation("That is not a valid value", fieldErrors));
+	}
+
+	/** Lists the accepted values for an enum, which is the one case we can be genuinely helpful. */
+	private static String describeExpected(MethodArgumentTypeMismatchException ex) {
+		Class<?> required = ex.getRequiredType();
+		if (required != null && required.isEnum()) {
+			return "must be one of: " + String.join(", ",
+					java.util.Arrays.stream(required.getEnumConstants())
+							.map(Object::toString)
+							.toList());
+		}
+		return "is not valid";
 	}
 
 	@ExceptionHandler(AuthenticationException.class)
