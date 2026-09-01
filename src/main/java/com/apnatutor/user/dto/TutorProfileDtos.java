@@ -207,7 +207,11 @@ public final class TutorProfileDtos {
 			List<LocationView> locations,
 			List<QualificationView> qualifications,
 			java.math.BigDecimal avgRating,
-			int reviewCount) {
+			int reviewCount,
+			@Schema(description = "PHONE_VERIFIED, ID_VERIFIED or FULLY_VERIFIED")
+			com.apnatutor.verification.domain.VerificationLevel verificationLevel,
+			@Schema(description = "Which checks passed — the badges a parent sees")
+			List<String> verifiedBadges) {
 	}
 
 	/** Fields shared by both views, so the two cannot drift apart on the common parts. */

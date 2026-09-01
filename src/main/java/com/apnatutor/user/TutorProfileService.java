@@ -19,6 +19,8 @@ import com.apnatutor.common.exception.ApiException;
 import com.apnatutor.common.web.ErrorCode;
 import com.apnatutor.storage.FileKind;
 import com.apnatutor.storage.FileStorage;
+import com.apnatutor.verification.VerificationService;
+import com.apnatutor.verification.domain.VerificationType;
 import com.apnatutor.user.domain.TutorLocation;
 import com.apnatutor.user.domain.TutorProfile;
 import com.apnatutor.user.domain.TutorQualification;
@@ -56,6 +58,7 @@ public class TutorProfileService {
 	private final GradeLevelRepository gradeLevels;
 	private final BoardRepository boards;
 	private final FileStorage fileStorage;
+	private final VerificationService verificationService;
 	private final Clock clock;
 
 	public TutorProfileService(
@@ -65,6 +68,7 @@ public class TutorProfileService {
 			GradeLevelRepository gradeLevels,
 			BoardRepository boards,
 			FileStorage fileStorage,
+			VerificationService verificationService,
 			Clock clock) {
 		this.profiles = profiles;
 		this.subjects = subjects;
@@ -72,6 +76,7 @@ public class TutorProfileService {
 		this.gradeLevels = gradeLevels;
 		this.boards = boards;
 		this.fileStorage = fileStorage;
+		this.verificationService = verificationService;
 		this.clock = clock;
 	}
 
@@ -430,7 +435,29 @@ public class TutorProfileService {
 				locationViews(profile, names),
 				qualificationViews(profile),
 				profile.getAvgRating(),
-				profile.getReviewCount());
+				profile.getReviewCount(),
+				verificationService.levelFor(profile.getUserId()),
+				badgesFor(profile.getUserId()));
+	}
+
+	/**
+	 * The verification badges a parent sees.
+	 *
+	 * <p>Strings rather than the enum, because this is display copy — "ID verified" is what a parent
+	 * reads, not {@code ID}. The underlying level is returned alongside for anything that needs to
+	 * branch.
+	 */
+	private List<String> badgesFor(Long userId) {
+		List<String> badges = new ArrayList<>();
+		badges.add("Phone verified");
+		for (VerificationType type : verificationService.approvedTypes(userId)) {
+			badges.add(switch (type) {
+				case ID -> "ID verified";
+				case EDUCATION -> "Qualifications verified";
+				case EMAIL -> "Email verified";
+			});
+		}
+		return badges;
 	}
 
 	/**
