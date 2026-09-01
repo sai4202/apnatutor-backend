@@ -9,6 +9,8 @@ import com.apnatutor.common.exception.ApiException;
 import com.apnatutor.common.web.ErrorCode;
 import com.apnatutor.lead.domain.LeadUnlock;
 import com.apnatutor.lead.domain.UnlockStatus;
+import com.apnatutor.notification.NotificationService;
+import com.apnatutor.notification.domain.NotificationType;
 import com.apnatutor.requirement.RequirementRepository;
 import com.apnatutor.requirement.domain.Requirement;
 import org.slf4j.Logger;
@@ -47,19 +49,25 @@ public class LeadUnlockService {
 
 	private static final Logger log = LoggerFactory.getLogger(LeadUnlockService.class);
 
+	/** Below this, a tutor is warned they will soon start missing leads. */
+	private static final int LOW_BALANCE_THRESHOLD = 10;
+
 	private final RequirementRepository requirements;
 	private final LeadUnlockRepository unlocks;
 	private final CreditLedger ledger;
+	private final NotificationService notifications;
 	private final Clock clock;
 
 	public LeadUnlockService(
 			RequirementRepository requirements,
 			LeadUnlockRepository unlocks,
 			CreditLedger ledger,
+			NotificationService notifications,
 			Clock clock) {
 		this.requirements = requirements;
 		this.unlocks = unlocks;
 		this.ledger = ledger;
+		this.notifications = notifications;
 		this.clock = clock;
 	}
 
@@ -113,6 +121,11 @@ public class LeadUnlockService {
 			LeadUnlock unlock = unlocks.save(
 					LeadUnlock.record(requirementId, tutorUserId, cost, introMessage, now));
 
+			// Recorded inside this transaction so it rolls back with the unlock — telling a parent
+			// about a response that did not happen is worse than telling them nothing. Actual
+			// delivery happens after commit; see NotificationService.
+			notifyStudentAndTutor(requirement, tutorUserId, cost);
+
 			log.info("Lead unlocked: requirement={} tutor={} credits={} slotsLeft={}",
 					requirementId, tutorUserId, cost, requirement.remainingSlots());
 
@@ -125,6 +138,36 @@ public class LeadUnlockService {
 					requirementId, tutorUserId);
 			throw new ApiException(ErrorCode.LEAD_ALREADY_UNLOCKED,
 					"You have already unlocked this enquiry.");
+		}
+	}
+
+	/**
+	 * Tells the student someone responded, and warns the tutor if they are running low.
+	 *
+	 * <p>The low-balance warning matters more than it looks: a tutor who silently runs out stops
+	 * seeing value in the platform, whereas one who is told is usually one top-up away from
+	 * continuing.
+	 */
+	private void notifyStudentAndTutor(Requirement requirement, Long tutorUserId, int cost) {
+		notifications.notify(
+				requirement.getStudentId(),
+				NotificationType.TUTOR_RESPONDED,
+				"A tutor responded to your enquiry",
+				"A verified tutor has responded and can now contact you. "
+						+ "You can see their details on your requirement.",
+				"REQUIREMENT",
+				requirement.getId());
+
+		int remaining = ledger.balanceOf(tutorUserId);
+		if (remaining < LOW_BALANCE_THRESHOLD) {
+			notifications.notify(
+					tutorUserId,
+					NotificationType.LOW_CREDIT_BALANCE,
+					"You are running low on credits",
+					"You have %d credits left. Top up to keep responding to enquiries."
+							.formatted(remaining),
+					"WALLET",
+					null);
 		}
 	}
 
