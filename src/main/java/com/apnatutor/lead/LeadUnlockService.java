@@ -78,9 +78,23 @@ public class LeadUnlockService {
 	/**
 	 * Spends credits to reveal a requirement's contact details.
 	 *
-	 * @throws ApiException {@code LEAD_ALREADY_UNLOCKED}, {@code LEAD_UNLOCK_CAP_REACHED},
-	 *     {@code REQUIREMENT_NOT_OPEN} or {@code INSUFFICIENT_CREDITS} — in every case having
-	 *     written nothing
+	 * <h2>Repeating the call is safe and free</h2>
+	 *
+	 * <p>A tutor who already holds this unlock gets it back, not an error. This is deliberate, and
+	 * it is what makes the endpoint replay-safe without an {@code Idempotency-Key} header.
+	 *
+	 * <p>The failure it prevents is specific and likely: a tutor on a patchy mobile connection taps
+	 * unlock, the request succeeds, the response never arrives, and the client retries. Answering
+	 * that retry with an error would leave them charged and holding nothing — the worst outcome the
+	 * money path can produce. They have already bought this lead; handing it over again costs
+	 * nothing and is the only answer that matches what they own.
+	 *
+	 * <p>The charge is still exactly once. It happens below this early return, guarded by a
+	 * {@code FOR UPDATE} lock and, underneath that, a unique index on
+	 * {@code (requirement_id, tutor_id)}.
+	 *
+	 * @throws ApiException {@code LEAD_UNLOCK_CAP_REACHED}, {@code REQUIREMENT_NOT_OPEN} or
+	 *     {@code INSUFFICIENT_CREDITS} — in every case having written nothing
 	 */
 	@Transactional
 	public LeadUnlock unlock(Long requirementId, Long tutorUserId, String introMessage) {
@@ -91,11 +105,12 @@ public class LeadUnlockService {
 		Requirement requirement = requirements.findByIdForUpdate(requirementId)
 				.orElseThrow(() -> ApiException.notFound("Requirement"));
 
-		if (unlocks.existsByRequirementIdAndTutorIdAndStatus(
-				requirementId, tutorUserId, UnlockStatus.ACTIVE)) {
-			// Friendly path. The unique index below is what actually guarantees it.
-			throw new ApiException(ErrorCode.LEAD_ALREADY_UNLOCKED,
-					"You have already unlocked this enquiry.");
+		var existing = unlocks.findByRequirementIdAndTutorIdAndStatus(
+				requirementId, tutorUserId, UnlockStatus.ACTIVE);
+		if (existing.isPresent()) {
+			// Already bought. Return it rather than charging or erroring.
+			log.info("Unlock replayed: requirement={} tutor={}", requirementId, tutorUserId);
+			return existing.get();
 		}
 
 		if (requirement.getUnlockCount() >= requirement.getUnlockCap()) {

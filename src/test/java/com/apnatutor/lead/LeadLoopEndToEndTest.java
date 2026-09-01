@@ -11,6 +11,8 @@ import java.time.Clock;
 
 import com.apnatutor.catalog.LocationRepository;
 import com.apnatutor.catalog.SubjectRepository;
+import com.apnatutor.notification.NotificationService;
+import com.apnatutor.notification.domain.NotificationType;
 import com.apnatutor.support.AbstractIntegrationTest;
 import com.apnatutor.support.RecordingSmsSender;
 import com.apnatutor.user.UserRepository;
@@ -58,6 +60,9 @@ class LeadLoopEndToEndTest extends AbstractIntegrationTest {
 
 	@Autowired
 	private Clock clock;
+
+	@Autowired
+	private NotificationService notifications;
 
 	private Long subjectId;
 	private Long locationId;
@@ -152,8 +157,8 @@ class LeadLoopEndToEndTest extends AbstractIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("unlocking twice is refused and charges once")
-	void cannotUnlockTwice() throws Exception {
+	@DisplayName("unlocking twice charges once and returns the lead both times")
+	void unlockingTwiceChargesOnce() throws Exception {
 		String studentToken = signIn("9300000003", UserRole.STUDENT);
 		Integer requirementId = postRequirement(studentToken);
 
@@ -165,14 +170,23 @@ class LeadLoopEndToEndTest extends AbstractIntegrationTest {
 		mockMvc.perform(post("/api/v1/tutor/leads/" + requirementId + "/unlock")
 				.header("Authorization", "Bearer " + tutorToken)).andExpect(status().isOk());
 
+		// The retry a flaky mobile connection produces. It must hand back the lead that was
+		// already paid for — an error here would leave the tutor charged and holding nothing.
 		mockMvc.perform(post("/api/v1/tutor/leads/" + requirementId + "/unlock")
 						.header("Authorization", "Bearer " + tutorToken))
-				.andExpect(status().isConflict())
-				.andExpect(jsonPath("$.code").value("LEAD_ALREADY_UNLOCKED"));
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.studentPhone").value("+919300000003"));
 
+		// The point of the test: replaying it is free.
 		mockMvc.perform(get("/api/v1/tutor/leads/wallet")
 						.header("Authorization", "Bearer " + tutorToken))
 				.andExpect(jsonPath("$.balance").value(15));
+
+		// And exactly one debit was ever written, not two that cancel out.
+		mockMvc.perform(get("/api/v1/tutor/leads/wallet")
+						.header("Authorization", "Bearer " + tutorToken))
+				.andExpect(jsonPath("$.history[?(@.reason == 'UNLOCK')]")
+						.value(org.hamcrest.Matchers.hasSize(1)));
 	}
 
 	@Test
@@ -251,6 +265,59 @@ class LeadLoopEndToEndTest extends AbstractIntegrationTest {
 				.andExpect(status().isForbidden());
 	}
 
+	@Test
+	@DisplayName("an unpublished tutor is shown no leads at all")
+	void unpublishedTutorSeesNothing() throws Exception {
+		String studentToken = signIn("9300000013", UserRole.STUDENT);
+		postRequirement(studentToken);
+
+		// Matches the enquiry on subject and location, but has never published. A parent would
+		// have no profile to check them against, so they must not be able to buy the phone number.
+		String tutorToken = signIn("9300000014", UserRole.TUTOR);
+		mockMvc.perform(put("/api/v1/tutor/profile/subjects")
+				.header("Authorization", "Bearer " + tutorToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"subjects\":[{\"subjectId\":%d}]}".formatted(subjectId)))
+				.andExpect(status().isOk());
+		mockMvc.perform(put("/api/v1/tutor/profile/teaching")
+				.header("Authorization", "Bearer " + tutorToken)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"teachingModes":["STUDENT_HOME"],"travelRadiusKm":10,"locationIds":[%d]}"""
+						.formatted(locationId))).andExpect(status().isOk());
+
+		mockMvc.perform(get("/api/v1/tutor/leads")
+						.header("Authorization", "Bearer " + tutorToken))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.totalElements").value(0));
+	}
+
+	@Test
+	@DisplayName("posting an enquiry notifies matching tutors, and only matching ones")
+	void postingNotifiesMatchingTutors() throws Exception {
+		// Teaches the subject in the right city.
+		String matching = signIn("9300000015", UserRole.TUTOR);
+		buildTutorProfile(matching);
+		Long matchingId = users.findByPhone("+919300000015").map(User::getId).orElseThrow();
+
+		// Published and complete, but teaches a different subject.
+		String other = signIn("9300000016", UserRole.TUTOR);
+		buildTutorProfileForSubject(
+				other, subjects.findBySlugAndActiveTrue("physics").orElseThrow().getId());
+		Long otherId = users.findByPhone("+919300000016").map(User::getId).orElseThrow();
+
+		String studentToken = signIn("9300000017", UserRole.STUDENT);
+		postRequirement(studentToken);
+
+		assertThat(notifications.forUser(matchingId))
+				.as("the maths tutor should be told a maths enquiry was posted")
+				.anyMatch(n -> n.getType() == NotificationType.NEW_MATCHING_LEAD);
+
+		assertThat(notifications.forUser(otherId))
+				.as("the physics tutor teaches something else and must not be pinged")
+				.noneMatch(n -> n.getType() == NotificationType.NEW_MATCHING_LEAD);
+	}
+
 	// --- Helpers ------------------------------------------------------------------------------
 
 	private Integer postRequirement(String studentToken) throws Exception {
@@ -266,11 +333,38 @@ class LeadLoopEndToEndTest extends AbstractIntegrationTest {
 		return JsonPath.read(posted, "$.id");
 	}
 
+	/**
+	 * Builds a profile complete enough to publish, and publishes it.
+	 *
+	 * <p>The publish step is not incidental: only published tutors see leads, because an
+	 * unpublished one unlocking a lead would put a stranger on a parent's phone with no profile
+	 * for the parent to check them against.
+	 */
 	private void buildTutorProfile(String token) throws Exception {
+		buildTutorProfileForSubject(token, subjectId);
+	}
+
+	private void buildTutorProfileForSubject(String token, Long subject) throws Exception {
+		mockMvc.perform(put("/api/v1/tutor/profile/basics")
+				.header("Authorization", "Bearer " + token)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"displayName":"Test Tutor","headline":"Experienced tutor",
+						 "bio":"I teach with a focus on building intuition before formulas so that \
+						the equations stop feeling arbitrary to my students.",
+						 "experienceYears":8,"offersDemo":true}"""))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(put("/api/v1/tutor/profile/fees")
+				.header("Authorization", "Bearer " + token)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"feeMinPaise\":400000,\"feeUnit\":\"PER_MONTH\",\"feeNegotiable\":true}"))
+				.andExpect(status().isOk());
+
 		mockMvc.perform(put("/api/v1/tutor/profile/subjects")
 				.header("Authorization", "Bearer " + token)
 				.contentType(MediaType.APPLICATION_JSON)
-				.content("{\"subjects\":[{\"subjectId\":%d}]}".formatted(subjectId)))
+				.content("{\"subjects\":[{\"subjectId\":%d}]}".formatted(subject)))
 				.andExpect(status().isOk());
 
 		mockMvc.perform(put("/api/v1/tutor/profile/teaching")
@@ -279,6 +373,9 @@ class LeadLoopEndToEndTest extends AbstractIntegrationTest {
 				.content("""
 						{"teachingModes":["STUDENT_HOME"],"travelRadiusKm":10,"locationIds":[%d]}"""
 						.formatted(locationId))).andExpect(status().isOk());
+
+		mockMvc.perform(post("/api/v1/tutor/profile/publish")
+				.header("Authorization", "Bearer " + token)).andExpect(status().isOk());
 	}
 
 	/** Granted directly rather than through the admin API, to keep the test focused. */

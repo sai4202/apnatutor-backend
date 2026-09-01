@@ -250,7 +250,24 @@ class ConfigurablePricingTest extends AbstractIntegrationTest {
 
 	// --- Helpers ------------------------------------------------------------------------------
 
+	/** Complete enough to publish — only published tutors are shown leads. */
 	private void buildTutorProfile(String token) throws Exception {
+		mockMvc.perform(put("/api/v1/tutor/profile/basics")
+				.header("Authorization", "Bearer " + token)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""
+						{"displayName":"Test Tutor","headline":"Experienced tutor",
+						 "bio":"I teach with a focus on building intuition before formulas so that \
+						the equations stop feeling arbitrary to my students.",
+						 "experienceYears":8,"offersDemo":true}"""))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(put("/api/v1/tutor/profile/fees")
+				.header("Authorization", "Bearer " + token)
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"feeMinPaise\":400000,\"feeUnit\":\"PER_MONTH\",\"feeNegotiable\":true}"))
+				.andExpect(status().isOk());
+
 		mockMvc.perform(put("/api/v1/tutor/profile/subjects")
 				.header("Authorization", "Bearer " + token)
 				.contentType(MediaType.APPLICATION_JSON)
@@ -262,6 +279,9 @@ class ConfigurablePricingTest extends AbstractIntegrationTest {
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{\"teachingModes\":[\"ONLINE\",\"STUDENT_HOME\"],\"travelRadiusKm\":10}"))
 				.andExpect(status().isOk());
+
+		mockMvc.perform(post("/api/v1/tutor/profile/publish")
+				.header("Authorization", "Bearer " + token)).andExpect(status().isOk());
 	}
 
 	private String signIn(String phone, UserRole role) throws Exception {

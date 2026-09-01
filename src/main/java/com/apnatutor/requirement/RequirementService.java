@@ -13,6 +13,8 @@ import com.apnatutor.catalog.domain.Subject;
 import com.apnatutor.common.exception.ApiException;
 import com.apnatutor.common.web.ErrorCode;
 import com.apnatutor.lead.LeadPricingService;
+import com.apnatutor.notification.NotificationService;
+import com.apnatutor.notification.domain.NotificationType;
 import com.apnatutor.requirement.domain.Requirement;
 import com.apnatutor.settings.SettingsService;
 import com.apnatutor.requirement.dto.RequirementDtos.PostRequirementRequest;
@@ -34,6 +36,14 @@ public class RequirementService {
 	/** Fallback if the setting is missing. SOURCE_OF_TRUTH.md §3.4. */
 	private static final int DEFAULT_LIFETIME_DAYS = 30;
 
+	/**
+	 * How many tutors are told about a new enquiry, as a multiple of its unlock cap.
+	 *
+	 * <p>Four candidates per slot. Enough that the slots fill quickly even when most recipients are
+	 * busy, few enough that a tutor who opens the notification has a real chance of still getting it.
+	 */
+	private static final int NOTIFY_FAN_OUT_MULTIPLE = 4;
+
 	private final RequirementRepository requirements;
 	private final SubjectRepository subjects;
 	private final LocationRepository locations;
@@ -41,6 +51,7 @@ public class RequirementService {
 	private final BoardRepository boards;
 	private final LeadPricingService pricing;
 	private final SettingsService settings;
+	private final NotificationService notifications;
 	private final Clock clock;
 
 	public RequirementService(
@@ -51,6 +62,7 @@ public class RequirementService {
 			BoardRepository boards,
 			LeadPricingService pricing,
 			SettingsService settings,
+			NotificationService notifications,
 			Clock clock) {
 		this.requirements = requirements;
 		this.subjects = subjects;
@@ -59,6 +71,7 @@ public class RequirementService {
 		this.boards = boards;
 		this.pricing = pricing;
 		this.settings = settings;
+		this.notifications = notifications;
 		this.clock = clock;
 	}
 
@@ -109,10 +122,64 @@ public class RequirementService {
 				cap,
 				clock.instant().plus(lifetime())));
 
+		notifyMatchingTutors(requirement, subject);
+
 		log.info("Requirement posted: id={} student={} subject={} cost={} credits",
 				requirement.getId(), studentId, subject.getSlug(), cost);
 
 		return requirement;
+	}
+
+	/**
+	 * Tells matching tutors a new enquiry is live.
+	 *
+	 * <p>Without this the feed is a page tutors have to remember to visit, and a lead that sits
+	 * unseen for a day is usually a lead the parent has already solved elsewhere. Speed of first
+	 * response is what the parent is buying and what the tutor is paying for.
+	 *
+	 * <h2>Why only a few tutors are told</h2>
+	 *
+	 * <p>Capped at {@link #NOTIFY_FAN_OUT} rather than everyone who matches. A lead has only a
+	 * handful of unlock slots, so messaging two hundred tutors would mean the great majority arrive
+	 * to find it taken — which teaches them the notifications are not worth opening. The cap is a
+	 * small multiple of the slots, and the ordering favours verified, well-rated tutors, which is
+	 * also what the parent wants answering.
+	 *
+	 * <h2>Why this is not wrapped in a try/catch</h2>
+	 *
+	 * <p>An obvious instinct is to swallow failures here so a notification bug cannot cost a parent
+	 * their enquiry. It would not work: {@code notify()} joins this transaction, so a failed write
+	 * marks it rollback-only and the commit throws regardless of what is caught. A catch would only
+	 * hide where the failure came from. Isolating the writes in {@code REQUIRES_NEW} would make the
+	 * catch real, but would also let notifications survive pointing at a requirement that never
+	 * committed. In practice every failure mode here is database-level, which would fail the
+	 * requirement's own save anyway — so sharing the transaction loses nothing and stays honest.
+	 *
+	 * <p>Delivery is a separate matter and already safe: {@link NotificationService} sends after
+	 * commit, so a dead SMS gateway cannot roll this back.
+	 */
+	private void notifyMatchingTutors(Requirement requirement, Subject subject) {
+		// A small multiple of the enquiry's own cap, so a change to the cap carries through.
+		int fanOut = requirement.getUnlockCap() * NOTIFY_FAN_OUT_MULTIPLE;
+
+		List<Long> tutorIds = requirements.findTutorsToNotify(
+				requirement.getSubjectId(),
+				requirement.getLocationId(),
+				requirement.getMode(),
+				fanOut);
+
+		for (Long tutorId : tutorIds) {
+			notifications.notify(
+					tutorId,
+					NotificationType.NEW_MATCHING_LEAD,
+					"New " + subject.getName() + " enquiry",
+					"A student is looking for a %s tutor. %d credits to see their details."
+							.formatted(subject.getName(), requirement.getUnlockCostCredits()),
+					"REQUIREMENT",
+					requirement.getId());
+		}
+
+		log.info("Notified {} tutor(s) about requirement {}", tutorIds.size(), requirement.getId());
 	}
 
 	@Transactional(readOnly = true)

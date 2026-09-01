@@ -19,5 +19,14 @@ public interface LeadUnlockRepository extends JpaRepository<LeadUnlock, Long> {
 	boolean existsByRequirementIdAndTutorIdAndStatus(
 			Long requirementId, Long tutorId, UnlockStatus status);
 
+	/**
+	 * An unlock this tutor already holds.
+	 *
+	 * <p>Used to make a repeated unlock return what was already bought instead of charging twice or
+	 * erroring — see {@link LeadUnlockService#unlock}.
+	 */
+	Optional<LeadUnlock> findByRequirementIdAndTutorIdAndStatus(
+			Long requirementId, Long tutorId, UnlockStatus status);
+
 	long countByRequirementIdAndStatus(Long requirementId, UnlockStatus status);
 }

@@ -207,7 +207,10 @@ class LeadUnlockConcurrencyTest extends AbstractIntegrationTest {
 		}
 		pool.shutdown();
 
-		assertThat(succeeded.get()).isEqualTo(1);
+		// Both calls may return successfully — the second is a replay, which is the point: a tutor
+		// retrying a dropped request gets the lead they paid for rather than an error. What must
+		// never double is the row and the charge.
+		assertThat(succeeded.get()).isBetween(1, 2);
 		assertThat(unlocks.countByRequirementIdAndStatus(
 				requirement.getId(), UnlockStatus.ACTIVE)).isEqualTo(1);
 
