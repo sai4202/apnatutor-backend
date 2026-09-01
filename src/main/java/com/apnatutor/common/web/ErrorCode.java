@@ -72,7 +72,20 @@ public enum ErrorCode {
 	 */
 	PAYMENT_GATEWAY_ERROR(HttpStatus.BAD_GATEWAY),
 	/** A dispute was raised outside the refund window, or on a lead already disputed. */
-	REFUND_NOT_ALLOWED(HttpStatus.CONFLICT);
+	REFUND_NOT_ALLOWED(HttpStatus.CONFLICT),
+
+	// --- Reviews (M5-01, M5-03) --------------------------------------------------------------
+	/**
+	 * The student was never connected to this tutor, so they have nothing to review.
+	 *
+	 * <p>403 rather than 404: the tutor plainly exists and their profile is public. The refusal is
+	 * about the writer, and saying so is what stops it reading as a bug.
+	 */
+	REVIEW_NOT_ELIGIBLE(HttpStatus.FORBIDDEN),
+	/** One review per student-tutor pair. The existing one stays editable while it is pending. */
+	REVIEW_ALREADY_EXISTS(HttpStatus.CONFLICT),
+	/** A tutor gets exactly one public answer per review (SOURCE_OF_TRUTH.md section 3.6). */
+	REVIEW_ALREADY_REPLIED(HttpStatus.CONFLICT);
 
 	private final HttpStatus status;
 

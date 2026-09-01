@@ -29,5 +29,19 @@ public enum NotificationType {
 
 	/** A tutor: a disputed lead was refunded, or the dispute was declined. */
 	REFUND_APPROVED,
-	REFUND_REJECTED
+	REFUND_REJECTED,
+
+	/** A tutor: a review of you passed moderation and is now on your profile. */
+	REVIEW_PUBLISHED,
+
+	/**
+	 * A student: the review you wrote will not be published, and why.
+	 *
+	 * <p>Sent because silence is indistinguishable from a bug. A student who writes a review and
+	 * never hears anything concludes the feature is broken, or that we quietly bin criticism.
+	 */
+	REVIEW_REJECTED,
+
+	/** A student: the tutor you reviewed has answered, and the answer is now public. */
+	REVIEW_REPLY_PUBLISHED
 }

@@ -1,5 +1,7 @@
 package com.apnatutor.user;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 import com.apnatutor.user.domain.TutorProfile;
@@ -24,4 +26,7 @@ public interface TutorProfileRepository extends JpaRepository<TutorProfile, Long
 	Optional<TutorProfile> findByUserId(Long userId);
 
 	boolean existsByUserId(Long userId);
+
+	/** Profiles for a set of tutor accounts, to label a list without a query per row. */
+	List<TutorProfile> findByUserIdIn(Collection<Long> userIds);
 }
