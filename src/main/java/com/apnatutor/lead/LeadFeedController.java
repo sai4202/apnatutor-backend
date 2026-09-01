@@ -3,6 +3,7 @@ package com.apnatutor.lead;
 import java.util.List;
 
 import com.apnatutor.billing.CreditLedger;
+import com.apnatutor.billing.RefundRequestRepository;
 import com.apnatutor.common.security.CurrentUser;
 import com.apnatutor.common.web.PageResponse;
 import com.apnatutor.lead.domain.LeadUnlock;
@@ -55,6 +56,7 @@ public class LeadFeedController {
 	private final CreditLedger ledger;
 	private final UserRepository users;
 	private final StudentProfileRepository studentProfiles;
+	private final RefundRequestRepository refunds;
 
 	public LeadFeedController(
 			RequirementRepository requirements,
@@ -63,7 +65,8 @@ public class LeadFeedController {
 			RequirementViewMapper mapper,
 			CreditLedger ledger,
 			UserRepository users,
-			StudentProfileRepository studentProfiles) {
+			StudentProfileRepository studentProfiles,
+			RefundRequestRepository refunds) {
 		this.requirements = requirements;
 		this.unlocks = unlocks;
 		this.unlockService = unlockService;
@@ -71,6 +74,7 @@ public class LeadFeedController {
 		this.ledger = ledger;
 		this.users = users;
 		this.studentProfiles = studentProfiles;
+		this.refunds = refunds;
 	}
 
 	@GetMapping
@@ -180,6 +184,7 @@ public class LeadFeedController {
 
 		return new UnlockedLead(
 				requirement.getId(),
+				unlock.getId(),
 				catalog.subjectName(requirement.getSubjectId()),
 				catalog.locationName(requirement.getLocationId()),
 				requirement.getMode(),
@@ -189,6 +194,9 @@ public class LeadFeedController {
 				studentName,
 				student == null ? null : student.getPhone(),
 				unlock.getCreditsSpent(),
-				unlock.getUnlockedAt());
+				unlock.getUnlockedAt(),
+				// So the UI can offer "dispute" once and then stop offering it, rather than
+				// letting a tutor tap it again and be told no.
+				refunds.existsByUnlockId(unlock.getId()));
 	}
 }

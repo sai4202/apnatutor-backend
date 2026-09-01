@@ -114,6 +114,38 @@ public final class BillingDtos {
 		}
 	}
 
+	/**
+	 * A receipt for one purchase.
+	 *
+	 * <h2>Why there is no PDF here</h2>
+	 *
+	 * <p>The data is returned and the browser prints it. A server-side PDF means a rendering
+	 * dependency, a font problem on some machine, and a file to store — for a document whose only
+	 * job is to be printed or saved by the person looking at it, which every browser already does.
+	 *
+	 * <p>The GST fields are present and nullable because whether credit sales need GST-compliant
+	 * invoices from launch is still an open question (PENDING.md D6). Nullable columns cost nothing;
+	 * retrofitting tax fields onto historical transactions is genuinely unpleasant.
+	 */
+	@Schema(description = "A receipt for one purchase")
+	public record ReceiptView(
+			Long paymentId,
+			@Schema(description = "Human-facing receipt number, stable for a given payment")
+			String receiptNumber,
+			Instant issuedAt,
+			String tutorName,
+			String tutorPhone,
+			String packageName,
+			int credits,
+			@Schema(description = "What was actually charged, in paise")
+			long amountPaise,
+			@Schema(description = "Null until the GST question is settled — see PENDING.md D6")
+			String gstin,
+			Long taxPaise,
+			String providerPaymentId,
+			String status) {
+	}
+
 	@Schema(description = "Balance, history and what is about to expire")
 	public record WalletView(
 			int balance,

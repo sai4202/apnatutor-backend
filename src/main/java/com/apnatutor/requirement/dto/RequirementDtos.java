@@ -150,6 +150,8 @@ public final class RequirementDtos {
 	@Schema(description = "An unlocked lead, with the contact details the tutor paid for")
 	public record UnlockedLead(
 			Long id,
+			@Schema(description = "The unlock itself, not the enquiry. Needed to raise a dispute.")
+			Long unlockId,
 			String subject,
 			String area,
 			String mode,
@@ -160,7 +162,9 @@ public final class RequirementDtos {
 			String studentName,
 			String studentPhone,
 			int creditsSpent,
-			Instant unlockedAt) {
+			Instant unlockedAt,
+			@Schema(description = "Whether this lead has already been disputed")
+			boolean disputed) {
 	}
 
 	@Schema(description = "What a lead would cost, quoted before posting")

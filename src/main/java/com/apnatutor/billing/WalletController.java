@@ -12,11 +12,17 @@ import com.apnatutor.billing.dto.BillingDtos.LedgerEntryView;
 import com.apnatutor.billing.dto.BillingDtos.OrderView;
 import com.apnatutor.billing.dto.BillingDtos.PackageView;
 import com.apnatutor.billing.dto.BillingDtos.PaymentView;
+import com.apnatutor.billing.dto.BillingDtos.ReceiptView;
 import com.apnatutor.billing.dto.BillingDtos.VerifyCheckoutRequest;
 import com.apnatutor.billing.dto.BillingDtos.WalletView;
 import com.apnatutor.billing.gateway.PaymentGateway;
 import com.apnatutor.common.config.AppProperties;
+import com.apnatutor.common.exception.ApiException;
 import com.apnatutor.common.security.CurrentUser;
+import com.apnatutor.common.web.ErrorCode;
+import com.apnatutor.user.TutorProfileRepository;
+import com.apnatutor.user.UserRepository;
+import com.apnatutor.user.domain.User;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -27,6 +33,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -51,6 +58,8 @@ public class WalletController {
 	private final PurchaseService purchases;
 	private final PaymentGateway gateway;
 	private final AppProperties properties;
+	private final UserRepository users;
+	private final TutorProfileRepository tutorProfiles;
 	private final Clock clock;
 
 	public WalletController(
@@ -58,11 +67,15 @@ public class WalletController {
 			PurchaseService purchases,
 			PaymentGateway gateway,
 			AppProperties properties,
+			UserRepository users,
+			TutorProfileRepository tutorProfiles,
 			Clock clock) {
 		this.ledger = ledger;
 		this.purchases = purchases;
 		this.gateway = gateway;
 		this.properties = properties;
+		this.users = users;
+		this.tutorProfiles = tutorProfiles;
 		this.clock = clock;
 	}
 
@@ -166,6 +179,74 @@ public class WalletController {
 				purchases.historyFor(currentUser.userId()).stream()
 						.map(PaymentView::from)
 						.toList());
+	}
+
+	/**
+	 * A receipt for one purchase.
+	 *
+	 * <p>Only for payments that were actually paid. A receipt for an order nobody completed is a
+	 * document that says money changed hands when it did not, and a tutor holding one has been given
+	 * something actively misleading.
+	 */
+	@GetMapping("/payments/{paymentId}/receipt")
+	@Transactional(readOnly = true)
+	@Operation(
+			summary = "Receipt for a purchase",
+			description = "Only available once the payment is confirmed. Returns the data; the "
+					+ "browser renders and prints it.")
+	public ResponseEntity<ReceiptView> receipt(
+			CurrentUser currentUser, @PathVariable Long paymentId) {
+
+		Payment payment = purchases.historyFor(currentUser.userId()).stream()
+				.filter(candidate -> candidate.getId().equals(paymentId))
+				.findFirst()
+				// NOT_FOUND for someone else's payment too — a 403 would confirm it exists.
+				.orElseThrow(() -> ApiException.notFound("Payment"));
+
+		if (!payment.isPaid()) {
+			throw new ApiException(ErrorCode.CONFLICT,
+					"A receipt is only available once the payment is confirmed.");
+		}
+
+		String packageName = purchases.storefront().stream()
+				.filter(candidate -> candidate.getId().equals(payment.getPackageId()))
+				.map(CreditPackage::getName)
+				.findFirst()
+				// A retired package is gone from the storefront but the receipt must still name
+				// what was bought, so fall back to something truthful rather than blank.
+				.orElse(payment.getCredits() + " credits");
+
+		User tutor = users.findById(currentUser.userId()).orElseThrow();
+
+		return ResponseEntity.ok(new ReceiptView(
+				payment.getId(),
+				receiptNumber(payment),
+				payment.getCreditedAt(),
+				tutorProfiles.findByUserId(currentUser.userId())
+						.map(profile -> profile.getDisplayName())
+						.filter(name -> name != null && !name.isBlank())
+						.orElse("Tutor"),
+				tutor.getPhone(),
+				packageName,
+				payment.getCredits(),
+				payment.getAmountPaise(),
+				// Null until the GST question is settled (PENDING.md D6). The fields exist now
+				// because retrofitting tax onto historical transactions is genuinely unpleasant.
+				null,
+				null,
+				payment.getProviderPaymentId(),
+				payment.getStatus().name()));
+	}
+
+	/**
+	 * A stable, human-facing receipt number.
+	 *
+	 * <p>Derived from the payment id rather than a separate sequence, so the same payment always
+	 * produces the same number however many times a receipt is opened. A receipt whose number
+	 * changed between viewings would be worthless as a record.
+	 */
+	private static String receiptNumber(Payment payment) {
+		return "AT-%06d".formatted(payment.getId());
 	}
 
 	/**
