@@ -34,6 +34,11 @@ apnatutor:
     secret: test-only-secret-not-used-anywhere-else-0123456789abcdef
   sms:
     provider: console
+  # Off in tests: the existing auth tests assert real rate limits and random
+  # codes, and seeded accounts with a fixed OTP would quietly bypass exactly the
+  # behaviour those tests exist to verify. Dev mode gets its own test instead.
+  dev:
+    enabled: false
   mail:
     provider: console
   storage:

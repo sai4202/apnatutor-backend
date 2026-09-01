@@ -9,6 +9,7 @@ import java.util.Optional;
 import com.apnatutor.auth.domain.OtpCode;
 import com.apnatutor.auth.domain.OtpPurpose;
 import com.apnatutor.common.config.AppProperties;
+import com.apnatutor.common.config.DevAccountSeeder;
 import com.apnatutor.common.exception.ApiException;
 import com.apnatutor.common.web.ErrorCode;
 import com.apnatutor.notification.SmsSender;
@@ -68,24 +69,45 @@ public class OtpService {
 	}
 
 	/**
+	 * The result of issuing a code.
+	 *
+	 * @param exposedCode the code itself, but <strong>only</strong> when dev mode is on. Null in
+	 *     every other configuration, so there is no path by which a real deployment can return a
+	 *     live OTP to an unauthenticated caller.
+	 */
+	public record IssuedCode(String exposedCode) {
+	}
+
+	/**
 	 * Generates a code, stores its hash, and sends it.
 	 *
 	 * @throws ApiException with {@link ErrorCode#OTP_SEND_LIMIT_EXCEEDED} if the hourly cap for this
 	 *     phone is reached
 	 */
 	@Transactional
-	public void requestCode(String canonicalPhone, OtpPurpose purpose) {
+	public IssuedCode requestCode(String canonicalPhone, OtpPurpose purpose) {
 		Instant now = clock.instant();
 		AppProperties.Otp config = properties.otp();
+		boolean devMode = properties.dev().enabled();
+		boolean devAccount = devMode && DevAccountSeeder.isDevAccount(canonicalPhone);
 
-		long recentSends = otpCodes.countSentSince(canonicalPhone, now.minus(Duration.ofHours(1)));
-		if (recentSends >= config.maxSendsPerHour()) {
-			log.warn("OTP send limit reached for {}", PhoneNumbers.mask(canonicalPhone));
-			throw new ApiException(ErrorCode.OTP_SEND_LIMIT_EXCEEDED,
-					"Too many codes requested. Please try again in an hour.");
+		// Seeded test accounts skip the hourly cap. They exist to be signed into repeatedly while
+		// developing, and hitting a rate limit on the demo account is pure friction with no
+		// security value — the code for these is published anyway.
+		if (!devAccount) {
+			long recentSends = otpCodes.countSentSince(canonicalPhone, now.minus(Duration.ofHours(1)));
+			if (recentSends >= config.maxSendsPerHour()) {
+				log.warn("OTP send limit reached for {}", PhoneNumbers.mask(canonicalPhone));
+				throw new ApiException(ErrorCode.OTP_SEND_LIMIT_EXCEEDED,
+						"Too many codes requested. Please try again in an hour.");
+			}
 		}
 
-		String code = generateCode();
+		// A fixed code for test accounts, random for everyone else. The fixed value still goes
+		// through the same hashing and verification path, so the flow being exercised is the real
+		// one rather than a bypass.
+		String code = devAccount ? properties.dev().testAccountCode() : generateCode();
+
 		OtpCode otp = new OtpCode(
 				canonicalPhone,
 				passwordEncoder.encode(code),
@@ -93,12 +115,16 @@ public class OtpService {
 				now.plus(config.ttl()));
 		otpCodes.save(otp);
 
-		smsSender.send(canonicalPhone,
-				"%s is your ApnaTutor verification code. It expires in %d minutes. Do not share it with anyone."
-						.formatted(code, config.ttl().toMinutes()));
+		if (!devAccount) {
+			smsSender.send(canonicalPhone,
+					"%s is your ApnaTutor verification code. It expires in %d minutes. Do not share it with anyone."
+							.formatted(code, config.ttl().toMinutes()));
+		}
 
 		// The code itself is never logged. Only the stub SMS sender prints it, and only in dev.
 		log.debug("OTP issued for {}", PhoneNumbers.mask(canonicalPhone));
+
+		return new IssuedCode(devMode ? code : null);
 	}
 
 	/**

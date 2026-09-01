@@ -94,6 +94,16 @@ apnatutor:
     max-attempts: 5
     max-sends-per-hour: 5
 
+  # Local development conveniences. EVERY ONE OF THESE IS A SECURITY HOLE IN
+  # PRODUCTION - they seed accounts with a published OTP and return generated
+  # codes in API responses.
+  #
+  # DevModeGuard refuses to start the application if this is true alongside a
+  # real SMS provider or a 'prod' profile, so it cannot be left on by accident.
+  dev:
+    enabled: ${APNATUTOR_DEV_MODE:true}
+    test-account-code: ${APNATUTOR_DEV_OTP:123456}
+
   # Authoritative values live in SOURCE_OF_TRUTH.md section 3. Keep them in sync.
   leads:
     unlock-cap: 5

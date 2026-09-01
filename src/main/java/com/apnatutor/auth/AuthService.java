@@ -55,11 +55,14 @@ public class AuthService {
 	 * Sends a login code.
 	 *
 	 * <p>Gives the caller nothing that distinguishes a known phone from an unknown one.
+	 *
+	 * @return the code itself when dev mode is on, so the login screen can display it; otherwise a
+	 *     result carrying null
 	 */
 	@Transactional
-	public void requestLoginCode(String rawPhone) {
+	public OtpService.IssuedCode requestLoginCode(String rawPhone) {
 		String phone = normaliseOrReject(rawPhone);
-		otpService.requestCode(phone, OtpPurpose.AUTH);
+		return otpService.requestCode(phone, OtpPurpose.AUTH);
 	}
 
 	/**

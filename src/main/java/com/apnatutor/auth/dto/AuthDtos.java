@@ -77,4 +77,19 @@ public final class AuthDtos {
 	@Schema(description = "Generic acknowledgement carrying no information about account existence")
 	public record MessageResponse(String message) {
 	}
+
+	/**
+	 * Acknowledgement of an OTP request.
+	 *
+	 * <p>{@code devCode} is populated <strong>only</strong> when {@code apnatutor.dev.enabled} is
+	 * true, and {@code DevModeGuard} refuses to start the application if that is set alongside a
+	 * real SMS provider or a production profile. In any real deployment this field is absent from
+	 * the JSON entirely.
+	 */
+	@Schema(description = "Acknowledgement that a code was sent")
+	public record OtpRequestResponse(
+			String message,
+			@Schema(description = "The OTP itself — development mode only, never present in production")
+			String devCode) {
+	}
 }

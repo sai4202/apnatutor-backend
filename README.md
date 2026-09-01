@@ -41,6 +41,24 @@ node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
 
 API on `http://localhost:8080`. Check it with `curl http://localhost:8080/actuator/health` — you want `status: UP` and `db: UP`.
 
+## Signing in without an SMS provider
+
+Dev mode (`APNATUTOR_DEV_MODE=true`, the default in `.env.example`) seeds one account per role:
+
+| Role | Phone | OTP |
+|---|---|---|
+| Student / Parent | `9999900001` | `123456` |
+| Tutor | `9999900002` | `123456` |
+| Admin | `9999900003` | `123456` |
+
+These bypass SMS entirely and skip the hourly send cap. They are one-click buttons on `/login`.
+
+Any **other** number still gets a real random code, printed to this console by the SMS stub. Dev mode also returns the generated code in the `/auth/otp/request` response as `devCode`, so the login screen can fill it in for you.
+
+**This must be off in production.** It is not enforced by a comment: `DevModeGuard` refuses to start the application if `apnatutor.dev.enabled` is true alongside a real SMS provider or a `prod` profile. A misconfiguration that crashes on deploy gets fixed in minutes; one that boots quietly gets found by someone else.
+
+When you are ready for real SMS, see PENDING.md D5 — the provider choice is still open, and per-message cost in India varies severalfold.
+
 ## Testing
 
 ```powershell

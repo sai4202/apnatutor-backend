@@ -3,6 +3,7 @@ package com.apnatutor.auth;
 import com.apnatutor.auth.dto.AuthDtos.AuthResponse;
 import com.apnatutor.auth.dto.AuthDtos.MessageResponse;
 import com.apnatutor.auth.dto.AuthDtos.OtpRequest;
+import com.apnatutor.auth.dto.AuthDtos.OtpRequestResponse;
 import com.apnatutor.auth.dto.AuthDtos.OtpVerifyRequest;
 import com.apnatutor.auth.dto.AuthDtos.UserSummary;
 import com.apnatutor.common.config.AppProperties;
@@ -64,10 +65,15 @@ public class AuthController {
 			@ApiResponse(responseCode = "200", description = "Code sent, if the number is valid"),
 			@ApiResponse(responseCode = "429", description = "OTP_SEND_LIMIT_EXCEEDED")
 	})
-	public ResponseEntity<MessageResponse> requestOtp(@Valid @RequestBody OtpRequest request) {
-		authService.requestLoginCode(request.phone());
-		return ResponseEntity.ok(new MessageResponse(
-				"If that number is valid, we have sent a code to it."));
+	public ResponseEntity<OtpRequestResponse> requestOtp(@Valid @RequestBody OtpRequest request) {
+		OtpService.IssuedCode issued = authService.requestLoginCode(request.phone());
+
+		// devCode is null unless dev mode is on, and DevModeGuard refuses to start the application
+		// if dev mode is enabled with a real SMS provider or a prod profile. Jackson's
+		// non_null inclusion drops the field entirely when absent.
+		return ResponseEntity.ok(new OtpRequestResponse(
+				"If that number is valid, we have sent a code to it.",
+				issued.exposedCode()));
 	}
 
 	@PostMapping("/otp/verify")
