@@ -18,12 +18,57 @@ import org.springframework.mock.env.MockEnvironment;
  */
 class DevModeGuardTest {
 
+	@Test
+	@DisplayName("production with a console stub still wired up refuses to start")
+	void refusesProductionWithConsoleStubs() {
+		MockEnvironment prod = new MockEnvironment();
+		prod.setActiveProfiles("prod");
+
+		// Each of these runs without error and fails silently, which is why it is a startup check
+		// rather than something to notice later: console mail logs receipts instead of sending
+		// them, and local storage loses a tutor's ID documents on the next redeploy.
+		assertThatThrownBy(() -> new DevModeGuard(
+						props(false, "msg91", configuredRazorpay(), "console", "s3"), prod).verify())
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("apnatutor.mail.provider=console");
+
+		assertThatThrownBy(() -> new DevModeGuard(
+						props(false, "msg91", configuredRazorpay(), "ses", "local"), prod).verify())
+				.isInstanceOf(IllegalStateException.class)
+				.hasMessageContaining("apnatutor.storage.provider=local");
+	}
+
+	@Test
+	@DisplayName("console stubs are fine outside a production profile")
+	void allowsStubsInDevelopment() {
+		assertThatCode(() -> new DevModeGuard(
+						props(true, "console", configuredRazorpay(), "console", "local"),
+						new MockEnvironment()).verify())
+				.doesNotThrowAnyException();
+	}
+
 	private static AppProperties props(boolean devEnabled, String smsProvider) {
 		return props(devEnabled, smsProvider, new AppProperties.Razorpay("", "", ""));
 	}
 
 	private static AppProperties props(
 			boolean devEnabled, String smsProvider, AppProperties.Razorpay razorpay) {
+		return props(devEnabled, smsProvider, razorpay, "console", "local");
+	}
+
+	/**
+	 * The full shape, for the tests that care which stubs are wired up.
+	 *
+	 * <p>The mail and storage providers gained their own guard at M6-10.5, so a fixture that
+	 * hard-coded the console stubs stopped being a valid production configuration — which is the
+	 * check working, not the test breaking.
+	 */
+	private static AppProperties props(
+			boolean devEnabled,
+			String smsProvider,
+			AppProperties.Razorpay razorpay,
+			String mailProvider,
+			String storageProvider) {
 		return new AppProperties(
 				"http://localhost:3000",
 				new AppProperties.Jwt(
@@ -32,7 +77,10 @@ class DevModeGuardTest {
 						Duration.ofDays(30)),
 				new AppProperties.Otp(Duration.ofMinutes(10), 5, 5),
 				new AppProperties.Sms(smsProvider),
-				new AppProperties.Storage("local", "./uploads"),
+				new AppProperties.Mail(mailProvider),
+				new AppProperties.Storage(
+						storageProvider, "./uploads", "apnatutor-uploads", "ap-south-1",
+						null, null, null),
 				new AppProperties.Dev(devEnabled, "123456"),
 				// Irrelevant to what this test asserts; any valid values will do.
 				new AppProperties.RateLimit(20, 120, 3000, 300, 30),
@@ -76,8 +124,10 @@ class DevModeGuardTest {
 		MockEnvironment prod = new MockEnvironment();
 		prod.setActiveProfiles("prod");
 
+		// Everything real: no dev mode, a genuine SMS provider, payments configured, and neither
+		// the console mailer nor local disk storage left behind.
 		assertThatCode(() -> new DevModeGuard(
-				props(false, "msg91", configuredRazorpay()), prod).verify())
+				props(false, "msg91", configuredRazorpay(), "ses", "s3"), prod).verify())
 				.doesNotThrowAnyException();
 	}
 

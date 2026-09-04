@@ -16,6 +16,16 @@ All from `backend/`. There is no global Maven — always use the wrapper.
 .\scripts\db-reset.ps1         # wipe apnatutor_dev + replay migrations
 ```
 
+Demo data (M6-04) — 8 tutors, 6 enquiries, 5 reviews, built through the real
+services rather than SQL, so a successful seed is itself proof the flows work:
+
+```powershell
+.\mvnw.cmd spring-boot:run "-Dspring-boot.run.arguments=--apnatutor.demo.seed=true"
+```
+
+Idempotent, and it tops up the dev tutor's credits on every run so the
+end-to-end money-path test has something to spend.
+
 ## Environment
 
 - **Windows + PowerShell.** `&&` does not chain — use `;` or `if ($?) { }`.

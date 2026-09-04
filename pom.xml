@@ -34,8 +34,21 @@
 			so the version is pinned explicitly.
 		-->
 		<springdoc.version>3.1.0</springdoc.version>
+		<!-- AWS SDK v2, S3 client only (M6-10.3). Version read from
+		     repo1.maven.org/maven2/software/amazon/awssdk/s3/maven-metadata.xml rather than
+		     the search API, which caches latestVersion and lags releases. -->
+		<aws.sdk.version>2.54.12</aws.sdk.version>
 	</properties>
 	<dependencies>
+
+		<!-- S3-compatible object storage (M6-10.3). Only the S3 client, not the whole SDK:
+		     the bill of materials pulls in dozens of service clients this application will
+		     never call, and each one is attack surface and start-up time. -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<version>${aws.sdk.version}</version>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>

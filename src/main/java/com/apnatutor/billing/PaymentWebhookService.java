@@ -4,6 +4,7 @@ import java.time.Clock;
 
 import com.apnatutor.billing.domain.PaymentWebhookEvent;
 import com.apnatutor.billing.gateway.PaymentGateway;
+import com.apnatutor.observability.Alerts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -46,6 +47,7 @@ public class PaymentWebhookService {
 	private final PurchaseService purchases;
 	private final PaymentGateway gateway;
 	private final ObjectMapper json;
+	private final Alerts alerts;
 	private final Clock clock;
 
 	public PaymentWebhookService(
@@ -53,11 +55,13 @@ public class PaymentWebhookService {
 			PurchaseService purchases,
 			PaymentGateway gateway,
 			ObjectMapper json,
+			Alerts alerts,
 			Clock clock) {
 		this.recorder = recorder;
 		this.purchases = purchases;
 		this.gateway = gateway;
 		this.json = json;
+		this.alerts = alerts;
 		this.clock = clock;
 	}
 
@@ -107,6 +111,9 @@ public class PaymentWebhookService {
 			// endpoint, which is why the rows are kept rather than dropped.
 			log.error("REJECTED webhook with an invalid signature: event={} type={}",
 					eventId, eventType);
+			alerts.raise(Alerts.Kind.WEBHOOK_SIGNATURE_REJECTED,
+					"event=%s type=%s - the HMAC is the only thing between this endpoint and free credits"
+							.formatted(eventId, eventType));
 			return Outcome.REJECTED;
 		}
 
@@ -116,6 +123,10 @@ public class PaymentWebhookService {
 			return Outcome.ACCEPTED;
 		} catch (RuntimeException e) {
 			log.error("Webhook processing failed: event={} type={}", eventId, eventType, e);
+			alerts.raise(Alerts.Kind.WEBHOOK_PROCESSING_FAILED,
+					"event=%s type=%s cause=%s - money reached the provider and credits may not have "
+							.formatted(eventId, eventType, e.getClass().getSimpleName())
+							+ "reached the tutor");
 			recorder.markFailed(event.getId(), e.getClass().getSimpleName() + ": " + e.getMessage());
 			// FAILED, so the provider retries. Safe precisely because crediting is idempotent.
 			return Outcome.FAILED;

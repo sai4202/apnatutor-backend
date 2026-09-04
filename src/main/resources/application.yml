@@ -136,9 +136,24 @@ apnatutor:
     refund-window: P7D
 
   storage:
-    # 'local' writes to the directory below; 's3' is wired in later for production.
+    # 'local' writes to the directory below and is development only: most hosts
+    # replace the filesystem on redeploy, so uploaded ID documents would vanish.
+    # 's3' works against S3 itself or any compatible provider (R2, B2, Spaces,
+    # MinIO) via the endpoint override. DevModeGuard refuses 'local' under prod.
+    #
+    # THE BUCKET MUST BE PRIVATE. Nothing here sets an ACL and no public URL is
+    # ever generated: every file is served through FileController, which is what
+    # applies the admin-only rule to identity documents.
     provider: ${APNATUTOR_STORAGE_PROVIDER:local}
     local-path: ${APNATUTOR_STORAGE_PATH:./uploads}
+    bucket: ${APNATUTOR_S3_BUCKET:}
+    region: ${APNATUTOR_S3_REGION:ap-south-1}
+    # Leave empty for AWS. Set it for a compatible provider.
+    endpoint: ${APNATUTOR_S3_ENDPOINT:}
+    # Leave empty to use the host's ambient credentials (an instance role), which
+    # is preferable to keys in environment variables.
+    access-key: ${APNATUTOR_S3_ACCESS_KEY:}
+    secret-key: ${APNATUTOR_S3_SECRET_KEY:}
 
   sms:
     # 'console' logs the OTP to stdout instead of sending it. Never use in production.

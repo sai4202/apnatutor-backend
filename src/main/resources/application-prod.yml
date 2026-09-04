@@ -1,0 +1,87 @@
+# Production profile — M6-07.3.
+#
+# Activated with SPRING_PROFILES_ACTIVE=prod. Everything secret comes from the
+# environment; nothing secret has a default here, so a missing variable fails at
+# startup rather than silently falling back to a development value.
+#
+# DevModeGuard additionally refuses to start this profile if dev mode is on, if
+# Razorpay is unconfigured (the stub gateway would grant credits for money that
+# never moved), or if any console stub is still wired up (M6-10.5).
+
+spring:
+  datasource:
+    url: ${DATABASE_URL}
+    username: ${DATABASE_USER}
+    password: ${DATABASE_PASSWORD}
+    hikari:
+      # Sized for a small managed Postgres. Raise deliberately with the database's
+      # own max_connections, not hopefully: exhausting the server's limit takes the
+      # whole application down rather than slowing it.
+      maximum-pool-size: ${DB_POOL_MAX:10}
+      minimum-idle: 2
+
+  jpa:
+    hibernate:
+      # Never 'update' in production. It would let an entity change alter a live
+      # schema with no migration, no review and no way back.
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          batch_size: 25
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    # THE IMPORTANT LINE. clean drops every table; it is enabled only for the
+    # disposable test database. A production datasource that permits it is one
+    # mistyped command from total data loss.
+    clean-disabled: true
+    # Fail rather than guess if the database was created outside Flyway.
+    baseline-on-migrate: false
+    validate-on-migrate: true
+
+server:
+  # Behind a reverse proxy: honour X-Forwarded-* so the application sees the
+  # visitor's scheme and address rather than the proxy's. Rate limiting keys on
+  # the client IP (M5-07) and the audit log records it, and both are wrong
+  # without this. See PENDING T21.
+  forward-headers-strategy: native
+  shutdown: graceful
+  error:
+    # Never leak internals. The global handler returns an ErrorCode; this stops
+    # the container adding a stack trace of its own if anything escapes it.
+    include-message: never
+    include-stacktrace: never
+    include-binding-errors: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # Health and info only. The default set includes /actuator/env and
+        # /actuator/configprops, which print configuration — secrets included —
+        # to anyone who can reach the port.
+        include: health,info
+  endpoint:
+    health:
+      # Uptime monitoring needs to know the database is reachable, not just that
+      # the process is alive (M6-08.2).
+      show-details: when-authorized
+      probes:
+        enabled: true
+
+apnatutor:
+  # No default. DevModeGuard refuses to start with this true under prod, but a
+  # missing variable should fail here first.
+  dev:
+    enabled: ${APNATUTOR_DEV_MODE:false}
+
+logging:
+  level:
+    root: INFO
+    com.apnatutor: INFO
+    # SQL logging in production is a performance cost and a privacy problem: bound
+    # parameters include phone numbers.
+    org.hibernate.SQL: WARN

@@ -9,6 +9,7 @@ import com.apnatutor.billing.domain.CreditTransaction;
 import com.apnatutor.billing.domain.CreditWallet;
 import com.apnatutor.common.exception.ApiException;
 import com.apnatutor.common.web.ErrorCode;
+import com.apnatutor.observability.Alerts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -33,14 +34,17 @@ public class CreditLedger {
 
 	private final CreditWalletRepository wallets;
 	private final CreditTransactionRepository transactions;
+	private final Alerts alerts;
 	private final Clock clock;
 
 	public CreditLedger(
 			CreditWalletRepository wallets,
 			CreditTransactionRepository transactions,
+			Alerts alerts,
 			Clock clock) {
 		this.wallets = wallets;
 		this.transactions = transactions;
+		this.alerts = alerts;
 		this.clock = clock;
 	}
 
@@ -158,6 +162,9 @@ public class CreditLedger {
 			// missing, and it does not fix itself.
 			log.error("LEDGER MISMATCH tutor={} cachedBalance={} ledgerSum={} difference={}",
 					tutorId, cached, replayed, cached - replayed);
+			alerts.raise(Alerts.Kind.LEDGER_MISMATCH,
+					"tutor=%d cached=%d ledger=%d - credits exist or vanished outside the ledger"
+							.formatted(tutorId, cached, replayed));
 		}
 
 		return cached - replayed;

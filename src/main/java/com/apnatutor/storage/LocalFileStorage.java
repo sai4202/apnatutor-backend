@@ -43,9 +43,14 @@ public class LocalFileStorage implements FileStorage {
 
 	private static final Logger log = LoggerFactory.getLogger(LocalFileStorage.class);
 
-	/** {@code kind-directory/uuid.ext} and nothing else. No slashes beyond the one, no dots. */
-	private static final Pattern KEY_PATTERN =
-			Pattern.compile("^[a-z-]{3,30}/[0-9a-f-]{36}\\.[a-z]{2,5}$");
+	/**
+	 * Shared with S3FileStorage, deliberately.
+	 *
+	 * <p>These were briefly two separate patterns with different character classes, which is the
+	 * drift this whole class exists to prevent: a key one backend accepts and the other refuses
+	 * is a file that uploads in development and 404s in production.
+	 */
+	private static final Pattern KEY_PATTERN = StoredUpload.KEY_PATTERN;
 
 	private final Path root;
 
@@ -61,25 +66,10 @@ public class LocalFileStorage implements FileStorage {
 
 	@Override
 	public StoredFile store(byte[] content, FileKind kind) {
-		if (content == null || content.length == 0) {
-			throw new ApiException(ErrorCode.VALIDATION_FAILED, "The file is empty.");
-		}
-		if (content.length > kind.maxBytes()) {
-			throw new ApiException(ErrorCode.VALIDATION_FAILED,
-					"That file is too large. The limit is %d MB."
-							.formatted(kind.maxBytes() / (1024 * 1024)));
-		}
-
-		// Decided from the bytes. The declared Content-Type is never consulted.
+		// Shared with S3FileStorage. Two backends duplicating these rules is how they drift, and
+		// the dangerous direction is the one where production accepts a file the tests refused.
+		String storageKey = StoredUpload.validateAndBuildKey(content, kind);
 		String contentType = ContentTypeDetector.detect(content);
-		if (contentType == null || !kind.allows(contentType)) {
-			throw new ApiException(ErrorCode.VALIDATION_FAILED,
-					"That file type is not supported. Please upload a %s."
-							.formatted(describe(kind)));
-		}
-
-		String storageKey = "%s/%s.%s".formatted(
-				kind.directory(), UUID.randomUUID(), ContentTypeDetector.extensionFor(contentType));
 
 		Path target = resolve(storageKey);
 		try {

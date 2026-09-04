@@ -31,7 +31,8 @@ class LocalFileStorageTest {
 						Duration.ofDays(30)),
 				new AppProperties.Otp(Duration.ofMinutes(10), 5, 5),
 				new AppProperties.Sms("console"),
-				new AppProperties.Storage("local", root.toString()),
+				new AppProperties.Mail("console"),
+				new AppProperties.Storage("local", root.toString(), null, null, null, null, null),
 				new AppProperties.Dev(false, "123456"),
 				// Irrelevant to file storage; any valid values will do.
 				new AppProperties.RateLimit(20, 120, 3000, 300, 30),

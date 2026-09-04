@@ -1,5 +1,8 @@
 package com.apnatutor.common.config;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +49,7 @@ public class DevModeGuard {
 	@PostConstruct
 	void verify() {
 		verifyPaymentsAreReal();
+		verifyNoStubsInProduction();
 
 		if (!properties.dev().enabled()) {
 			return;
@@ -106,6 +110,57 @@ public class DevModeGuard {
 
 				Set apnatutor.razorpay.key-id and apnatutor.razorpay.key-secret \
 				(RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET).""".formatted(profile));
+	}
+
+	/**
+	 * Refuses a production profile that is still wired to a console stub — {@code M6-10.5}.
+	 *
+	 * <p>Each of these is a stub that <em>works</em>, which is what makes them dangerous. The
+	 * console SMS sender logs the OTP instead of sending it, so every user is locked out and the
+	 * codes are sitting in a log file. The console mailer does the same with receipts. Local file
+	 * storage accepts uploads and loses them on the next redeploy, taking a tutor's ID documents
+	 * with them.
+	 *
+	 * <p>None of the three produces an error at startup or an exception at runtime. They produce a
+	 * deployment that looks healthy and is quietly broken in a way the first affected user
+	 * discovers — which is exactly the class of failure a startup check is for.
+	 */
+	private void verifyNoStubsInProduction() {
+		String profile = productionProfile();
+		if (profile == null) {
+			return;
+		}
+
+		List<String> stubs = new ArrayList<>();
+		if (properties.sms().isConsoleStub()) {
+			stubs.add("apnatutor.sms.provider=console — OTPs would be logged, not sent, "
+					+ "so nobody could sign in and every code would be in the logs "
+					+ "(set APNATUTOR_SMS_PROVIDER)");
+		}
+		if ("console".equalsIgnoreCase(properties.mail().provider())) {
+			stubs.add("apnatutor.mail.provider=console — receipts and notifications would be "
+					+ "logged, not sent (set APNATUTOR_MAIL_PROVIDER)");
+		}
+		if ("local".equalsIgnoreCase(properties.storage().provider())) {
+			stubs.add("apnatutor.storage.provider=local — uploads go to local disk, which most "
+					+ "hosts wipe on redeploy and no second instance can read, taking tutors' "
+					+ "ID documents with it (set APNATUTOR_STORAGE_PROVIDER=s3)");
+		}
+
+		if (stubs.isEmpty()) {
+			return;
+		}
+
+		throw new IllegalStateException("""
+
+				REFUSING TO START: the '%s' profile is active with %d console stub(s) still \
+				configured.
+
+				%s
+
+				Every one of these runs without error and fails silently, which is why this \
+				is checked at startup rather than left to be noticed.""".formatted(
+				profile, stubs.size(), String.join("\n\n", stubs)));
 	}
 
 	/** The active production-like profile, or null if none is. */

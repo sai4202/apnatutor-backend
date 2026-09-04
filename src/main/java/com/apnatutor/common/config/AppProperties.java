@@ -27,6 +27,7 @@ public record AppProperties(
 		@Valid @NotNull Jwt jwt,
 		@Valid @NotNull Otp otp,
 		@Valid @NotNull Sms sms,
+		@Valid @NotNull Mail mail,
 		@Valid @NotNull Storage storage,
 		@Valid @NotNull Dev dev,
 		@Valid @NotNull RateLimit rateLimit,
@@ -78,7 +79,23 @@ public record AppProperties(
 	 * replaces it at {@code M6-10.3}, since local disk does not survive a redeploy on most hosts
 	 * and cannot be shared between instances.
 	 */
-	public record Storage(@NotBlank String provider, @NotBlank String localPath) {
+	public record Storage(
+			@NotBlank String provider,
+			@NotBlank String localPath,
+			/** S3 only. Null for the local provider, checked at construction by S3FileStorage. */
+			String bucket,
+			String region,
+			/** Set for a non-AWS S3-compatible provider: R2, B2, Spaces, MinIO. */
+			String endpoint,
+			String accessKey,
+			String secretKey) {
+	}
+
+	/**
+	 * Where email goes. {@code console} logs it instead of sending, which is right in development
+	 * and refused under a production profile by {@link DevModeGuard} (M6-10.5).
+	 */
+	public record Mail(@NotBlank String provider) {
 	}
 
 	public record Sms(@NotBlank String provider) {
