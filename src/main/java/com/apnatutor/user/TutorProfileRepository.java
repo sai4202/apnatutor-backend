@@ -6,6 +6,8 @@ import java.util.Optional;
 
 import com.apnatutor.user.domain.TutorProfile;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * Note there is deliberately no {@code @EntityGraph} fetching subjects, locations and
@@ -29,4 +31,19 @@ public interface TutorProfileRepository extends JpaRepository<TutorProfile, Long
 
 	/** Profiles for a set of tutor accounts, to label a list without a query per row. */
 	List<TutorProfile> findByUserIdIn(Collection<Long> userIds);
+
+	/**
+	 * A profile that is both published and owned by an account in good standing.
+	 *
+	 * <p>The account check belongs in the query, not in a caller's filter, for the same reason the
+	 * search query carries it: a suspended tutor whose profile page still resolves is a suspension
+	 * that did not happen. This is the only other way into a tutor's public projection.
+	 */
+	@Query("""
+			SELECT p FROM TutorProfile p, User u
+			WHERE p.id = :profileId
+			  AND u.id = p.userId
+			  AND p.published = TRUE
+			  AND u.status = com.apnatutor.user.domain.UserStatus.ACTIVE""")
+	Optional<TutorProfile> findPublishedActiveById(@Param("profileId") Long profileId);
 }

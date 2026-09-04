@@ -1,11 +1,16 @@
 package com.apnatutor.lead;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 
 import com.apnatutor.billing.CreditLedger;
 import com.apnatutor.billing.domain.CreditReason;
+import com.apnatutor.common.config.AppProperties;
 import com.apnatutor.common.exception.ApiException;
+import com.apnatutor.ratelimit.RateLimitPolicy;
+import com.apnatutor.ratelimit.RateLimitedException;
+import com.apnatutor.ratelimit.RateLimiter;
 import com.apnatutor.common.web.ErrorCode;
 import com.apnatutor.lead.domain.LeadUnlock;
 import com.apnatutor.lead.domain.UnlockStatus;
@@ -58,6 +63,8 @@ public class LeadUnlockService {
 	private final CreditLedger ledger;
 	private final NotificationService notifications;
 	private final SettingsService settings;
+	private final RateLimiter rateLimiter;
+	private final AppProperties properties;
 	private final Clock clock;
 
 	public LeadUnlockService(
@@ -66,12 +73,16 @@ public class LeadUnlockService {
 			CreditLedger ledger,
 			NotificationService notifications,
 			SettingsService settings,
+			RateLimiter rateLimiter,
+			AppProperties properties,
 			Clock clock) {
 		this.requirements = requirements;
 		this.unlocks = unlocks;
 		this.ledger = ledger;
 		this.notifications = notifications;
 		this.settings = settings;
+		this.rateLimiter = rateLimiter;
+		this.properties = properties;
 		this.clock = clock;
 	}
 
@@ -111,6 +122,32 @@ public class LeadUnlockService {
 			// Already bought. Return it rather than charging or erroring.
 			log.info("Unlock replayed: requirement={} tutor={}", requirementId, tutorUserId);
 			return existing.get();
+		}
+
+		// M5-07.2: per-tutor, and deliberately AFTER the replay check above.
+		//
+		// A tutor on a patchy connection retrying the same unlock must never be rate-limited —
+		// that request buys nothing new, and refusing it would break the exact case the replay
+		// path exists for, turning a flaky network into a lost credit. Only a genuinely new
+		// unlock counts against the allowance.
+		//
+		// Keyed on the tutor rather than the IP because the identity is proven here, and because
+		// several tutors sharing one address is normal in this market. The filter cannot do this:
+		// it runs before authentication, where a user id would only be attacker-supplied.
+		RateLimiter.Decision decision = rateLimiter.check(
+				String.valueOf(tutorUserId),
+				new RateLimitPolicy(
+						"unlock",
+						properties.rateLimit().unlocksPerHourPerTutor(),
+						Duration.ofHours(1)));
+
+		if (!decision.allowed()) {
+			log.warn("Unlock rate limit reached: tutor={} requirement={}",
+					tutorUserId, requirementId);
+			throw new RateLimitedException(
+					"You have unlocked a lot of leads in a short time. "
+							+ "Please try again shortly.",
+					decision.retryAfterSeconds());
 		}
 
 		if (requirement.getUnlockCount() >= requirement.getUnlockCap()) {

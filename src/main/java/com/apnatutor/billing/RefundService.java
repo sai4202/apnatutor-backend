@@ -10,20 +10,27 @@ import com.apnatutor.billing.domain.CreditTransaction;
 import com.apnatutor.billing.domain.RefundReason;
 import com.apnatutor.billing.domain.RefundRequest;
 import com.apnatutor.billing.domain.RefundStatus;
+import com.apnatutor.abuse.AbuseReportService;
+import com.apnatutor.abuse.domain.ReportReason;
+import com.apnatutor.abuse.domain.ReportSubjectType;
+import com.apnatutor.audit.AuditContext;
 import com.apnatutor.common.exception.ApiException;
 import com.apnatutor.common.web.ErrorCode;
 import com.apnatutor.lead.LeadUnlockRepository;
 import com.apnatutor.lead.domain.LeadUnlock;
+import com.apnatutor.lead.domain.UnlockStatus;
 import com.apnatutor.notification.NotificationService;
 import com.apnatutor.notification.domain.NotificationType;
 import com.apnatutor.requirement.RequirementRepository;
 import com.apnatutor.settings.SettingsService;
+import com.apnatutor.user.TutorProfileRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -65,6 +72,8 @@ public class RefundService {
 	private final CreditLedger ledger;
 	private final NotificationService notifications;
 	private final SettingsService settings;
+	private final AbuseReportService abuseReports;
+	private final TutorProfileRepository tutorProfiles;
 	private final Clock clock;
 
 	public RefundService(
@@ -74,6 +83,8 @@ public class RefundService {
 			CreditLedger ledger,
 			NotificationService notifications,
 			SettingsService settings,
+			AbuseReportService abuseReports,
+			TutorProfileRepository tutorProfiles,
 			Clock clock) {
 		this.refunds = refunds;
 		this.unlocks = unlocks;
@@ -81,6 +92,8 @@ public class RefundService {
 		this.ledger = ledger;
 		this.notifications = notifications;
 		this.settings = settings;
+		this.abuseReports = abuseReports;
+		this.tutorProfiles = tutorProfiles;
 		this.clock = clock;
 	}
 
@@ -184,6 +197,17 @@ public class RefundService {
 			requirements.save(requirement);
 		});
 
+		// M5-08.3: every refund recorded. The ledger already proves the credits moved; this says
+		// which admin decided they should, and on what grounds.
+		AuditContext.describe("REFUND_APPROVED", "REFUND_REQUEST", refundId);
+		AuditContext.summarise(note);
+		AuditContext.before(AuditContext.fields("status", RefundStatus.PENDING.name()));
+		AuditContext.after(AuditContext.fields(
+				"status", RefundStatus.APPROVED.name(),
+				"tutorId", request.getTutorId(),
+				"creditsRefunded", request.getCredits(),
+				"creditTransactionId", entry.getId()));
+
 		notifications.notify(
 				request.getTutorId(),
 				NotificationType.REFUND_APPROVED,
@@ -214,6 +238,14 @@ public class RefundService {
 
 		refunds.save(request);
 
+		AuditContext.describe("REFUND_REJECTED", "REFUND_REQUEST", refundId);
+		AuditContext.summarise(note);
+		AuditContext.before(AuditContext.fields("status", RefundStatus.PENDING.name()));
+		AuditContext.after(AuditContext.fields(
+				"status", RefundStatus.REJECTED.name(),
+				"tutorId", request.getTutorId(),
+				"creditsWithheld", request.getCredits()));
+
 		notifications.notify(
 				request.getTutorId(),
 				NotificationType.REFUND_REJECTED,
@@ -226,6 +258,67 @@ public class RefundService {
 				refundId, request.getTutorId(), adminUserId);
 
 		return request;
+	}
+
+	/**
+	 * Refunds every tutor who paid for a requirement the platform has just taken down (M5-05.6).
+	 *
+	 * <p>This is not a dispute, and deliberately writes no {@link RefundRequest} row. A dispute is a
+	 * tutor's claim; this is the platform conceding without being asked, because a lead we removed
+	 * as fake was a lead we should never have sold. Recording it as a dispute would inflate
+	 * {@link #disputeRateFor} for tutors who complained about nothing — the one number used to judge
+	 * whether a tutor is gaming refunds — and would teach the flag to fire on the platform's own
+	 * mistakes.
+	 *
+	 * <p>The ledger entry is the record instead: reason {@code REFUND}, referencing the requirement.
+	 * Runs in the caller's transaction so the takedown and the refunds commit together; a removal
+	 * that credited nobody, or credits granted for a requirement still live, would both be worse
+	 * than either alone.
+	 *
+	 * <p>The unlock count is <strong>not</strong> decremented here. {@link #approve} frees the slot
+	 * so another tutor can take the lead; there is no lead left to take, and reopening slots on a
+	 * removed requirement is meaningless. {@code Requirement.restore} recomputes its state from the
+	 * count, so leaving it intact is also what makes a restore land in the right place.
+	 *
+	 * @return the number of tutors refunded
+	 */
+	@Transactional(propagation = Propagation.MANDATORY)
+	public int refundAllForRemovedRequirement(Long requirementId, String reason) {
+		List<LeadUnlock> paid = unlocks.findByRequirementIdAndStatus(
+				requirementId, UnlockStatus.ACTIVE);
+
+		for (LeadUnlock unlock : paid) {
+			ledger.grant(
+					unlock.getTutorId(),
+					unlock.getCreditsSpent(),
+					CreditReason.REFUND,
+					"REQUIREMENT_REMOVAL",
+					requirementId,
+					// No expiry, for the same reason as an approved dispute: these credits were
+					// paid for once already, and a fresh clock would be a second penalty for our
+					// mistake.
+					null);
+
+			unlock.markRefunded();
+			unlocks.save(unlock);
+
+			notifications.notify(
+					unlock.getTutorId(),
+					NotificationType.REFUND_APPROVED,
+					"%d credits refunded".formatted(unlock.getCreditsSpent()),
+					"We removed an enquiry you had unlocked (%s) and have returned the %d credits "
+							.formatted(reason, unlock.getCreditsSpent())
+							+ "you spent on it.",
+					"REQUIREMENT",
+					requirementId);
+		}
+
+		if (!paid.isEmpty()) {
+			log.info("Requirement removal refunded {} tutors: requirement={}",
+					paid.size(), requirementId);
+		}
+
+		return paid.size();
 	}
 
 	@Transactional(readOnly = true)
@@ -255,12 +348,16 @@ public class RefundService {
 	}
 
 	/**
-	 * Logs a warning when a tutor's dispute rate looks like abuse.
+	 * Raises a report when a tutor's dispute rate looks like abuse.
 	 *
 	 * <p>Flags rather than blocks, deliberately. A tutor whose leads really are bad is exactly the
 	 * person a hard cutoff would punish, and they are the one already being let down. A human
-	 * looking at the pattern can tell the two apart; a threshold cannot. Becomes an admin alert at
-	 * {@code M5-08}.
+	 * looking at the pattern can tell the two apart; a threshold cannot.
+	 *
+	 * <p>Deliberately not an audit entry: the audit log records what an admin did, and this is the
+	 * platform noticing something about a tutor. It raises a {@code SYSTEM} abuse report instead
+	 * (M5-09.2), which is a queue a person actually reads — the log line it used to be was a
+	 * placeholder, because a warning nobody greps is not a queue.
 	 */
 	private void warnIfDisputeRateHigh(Long tutorUserId) {
 		long disputes = refunds.countByTutorId(tutorUserId);
@@ -269,10 +366,25 @@ public class RefundService {
 		}
 
 		double rate = disputeRateFor(tutorUserId);
-		if (rate > DISPUTE_RATE_FLAG) {
-			log.warn("HIGH DISPUTE RATE: tutor={} disputes={} rate={}% — review manually",
-					tutorUserId, disputes, Math.round(rate * 100));
+		if (rate <= DISPUTE_RATE_FLAG) {
+			return;
 		}
+
+		log.warn("HIGH DISPUTE RATE: tutor={} disputes={} rate={}%",
+				tutorUserId, disputes, Math.round(rate * 100));
+
+		// M5-09.2, and the end of a promise this method has carried since M4: the log line above
+		// was always a placeholder, because a warning nobody greps is not a queue. The tutor is
+		// addressed by profile id, as everywhere on the wire (ADR #13); a tutor with no profile
+		// cannot have bought a lead, so the absence is not a case to handle.
+		tutorProfiles.findByUserId(tutorUserId).ifPresent(profile -> abuseReports.raiseSystemReport(
+				ReportSubjectType.TUTOR,
+				profile.getId(),
+				ReportReason.HIGH_DISPUTE_RATE,
+				"Disputed %d of their leads (%d%%). Either they are gaming refunds, or their "
+						.formatted(disputes, Math.round(rate * 100))
+						+ "targeting is so wrong that every lead disappoints them. Both need a "
+						+ "person; neither is caught by an automatic block."));
 	}
 
 	/**

@@ -29,6 +29,7 @@ public record AppProperties(
 		@Valid @NotNull Sms sms,
 		@Valid @NotNull Storage storage,
 		@Valid @NotNull Dev dev,
+		@Valid @NotNull RateLimit rateLimit,
 		@Valid @NotNull Razorpay razorpay) {
 
 	public record Jwt(
@@ -54,6 +55,22 @@ public record AppProperties(
 			@NotNull Duration ttl,
 			@Min(1) int maxAttempts,
 			@Min(1) int maxSendsPerHour) {
+	}
+
+	/**
+	 * Per-IP allowances, per minute (M5-07).
+	 *
+	 * <p>Every number here is sized for "one address behaving badly", not "one person behaving
+	 * normally". Indian mobile networks use carrier-grade NAT heavily, so an address can be a whole
+	 * neighbourhood — a limit tuned to one human locks out a city block. What protects an
+	 * individual is the per-phone OTP cap and the per-user limits in the service layer.
+	 */
+	public record RateLimit(
+			@Min(1) int authPerMinute,
+			@Min(1) int adminPerMinute,
+			@Min(1) int publicPerMinute,
+			@Min(1) int apiPerMinute,
+			@Min(1) int unlocksPerHourPerTutor) {
 	}
 
 	/**

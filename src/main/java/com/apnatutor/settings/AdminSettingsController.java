@@ -3,6 +3,7 @@ package com.apnatutor.settings;
 import java.math.BigDecimal;
 import java.util.List;
 
+import com.apnatutor.audit.AuditContext;
 import com.apnatutor.common.security.CurrentUser;
 import com.apnatutor.lead.LeadPricingService;
 import com.apnatutor.lead.domain.LeadPricingBand;
@@ -120,7 +121,22 @@ public class AdminSettingsController {
 			@PathVariable String key,
 			@Valid @RequestBody UpdateSettingRequest request) {
 
+		// Read before the write. A setting change is the cheapest destructive action on the
+		// platform — one field, no confirmation — and the previous value is the only thing that
+		// makes it reversible by somebody who was not in the room.
+		String previousValue = settings.all().stream()
+				.filter(setting -> setting.getKey().equals(key))
+				.map(setting -> setting.getValue())
+				.findFirst()
+				.orElse(null);
+
 		var updated = settings.update(key, request.value(), currentUser.userId());
+
+		AuditContext.describe("SETTING_CHANGED", "SETTING", null);
+		AuditContext.summarise(key);
+		AuditContext.before(AuditContext.fields("key", key, "value", previousValue));
+		AuditContext.after(AuditContext.fields("key", key, "value", updated.getValue()));
+
 		return ResponseEntity.ok(new SettingView(
 				updated.getKey(),
 				updated.getValue(),
@@ -149,8 +165,21 @@ public class AdminSettingsController {
 			@PathVariable Long id,
 			@Valid @RequestBody UpdateBandRequest request) {
 
-		return ResponseEntity.ok(BandView.from(
-				pricing.updateBand(id, request.credits(), request.label(), currentUser.userId())));
+		var before = pricing.allBands().stream().filter(b -> b.getId().equals(id)).findFirst();
+		var updated = pricing.updateBand(
+				id, request.credits(), request.label(), currentUser.userId());
+
+		AuditContext.describe("LEAD_PRICE_BAND_CHANGED", "PRICING_BAND", id);
+		AuditContext.summarise(request.label());
+		AuditContext.before(AuditContext.fields(
+				"credits", before.map(b -> b.getCredits()).orElse(null),
+				"label", before.map(b -> b.getLabel()).orElse(null)));
+		AuditContext.after(AuditContext.fields(
+				"credits", updated.getCredits(),
+				"label", updated.getLabel(),
+				"minBudgetPaise", updated.getMinBudgetPaise()));
+
+		return ResponseEntity.ok(BandView.from(updated));
 	}
 
 	@PostMapping("/pricing/bands")

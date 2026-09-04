@@ -32,6 +32,9 @@ public interface LeadUnlockRepository extends JpaRepository<LeadUnlock, Long> {
 
 	long countByRequirementIdAndStatus(Long requirementId, UnlockStatus status);
 
+	/** How many leads a tutor has bought and still holds. For the admin account summary. */
+	long countByTutorIdAndStatus(Long tutorId, UnlockStatus status);
+
 	/**
 	 * Has this tutor ever been put in touch with this student?
 	 *

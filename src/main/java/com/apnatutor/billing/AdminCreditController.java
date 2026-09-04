@@ -1,5 +1,6 @@
 package com.apnatutor.billing;
 
+import com.apnatutor.audit.AuditContext;
 import com.apnatutor.billing.domain.CreditReason;
 import com.apnatutor.common.security.CurrentUser;
 import io.swagger.v3.oas.annotations.Operation;
@@ -70,6 +71,10 @@ public class AdminCreditController {
 	public ResponseEntity<BalanceView> grant(
 			CurrentUser currentUser, @Valid @RequestBody GrantRequest request) {
 
+		// Read before the grant. A balance is the one thing here nobody can reconstruct later:
+		// the ledger says the credits arrived, and only this says what they landed on top of.
+		int balanceBefore = ledger.balanceOf(request.tutorUserId());
+
 		ledger.grant(
 				request.tutorUserId(),
 				request.credits(),
@@ -79,6 +84,14 @@ public class AdminCreditController {
 				// No expiry on a manual grant: these are usually goodwill after a support problem,
 				// and expiring an apology would be a second insult.
 				null);
+
+		// M5-08.3: every credit adjustment recorded.
+		AuditContext.describe("CREDITS_GRANTED", "USER", request.tutorUserId());
+		AuditContext.summarise(request.reason());
+		AuditContext.before(AuditContext.fields("balance", balanceBefore));
+		AuditContext.after(AuditContext.fields(
+				"balance", balanceBefore + request.credits(),
+				"creditsGranted", request.credits()));
 
 		log.info("Admin credit grant: admin={} tutor={} credits={} reason={}",
 				currentUser.userId(), request.tutorUserId(), request.credits(), request.reason());

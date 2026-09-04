@@ -65,6 +65,16 @@ public class StudentProfile {
 		return userId;
 	}
 
+	/**
+	 * Erases the personal fields, keeping the row (M5-10.3).
+	 *
+	 * <p>The row survives because enquiries reference the account, and those carry money records
+	 * behind them. The location is kept: it is a city, not a person.
+	 */
+	public void anonymise() {
+		this.name = null;
+	}
+
 	public String getName() {
 		return name;
 	}

@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import com.apnatutor.common.exception.ApiException;
+import com.apnatutor.ratelimit.RateLimitedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -36,6 +37,22 @@ public class GlobalExceptionHandler {
 	private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
 	/** Deliberately-raised application errors. Expected outcomes, so logged at debug. */
+	/**
+	 * A limit hit in the service layer (M5-07.4).
+	 *
+	 * <p>Declared before the general {@link ApiException} handler so it wins: Spring picks the most
+	 * specific handler, but stating the intent here saves the next person checking. The only thing
+	 * it adds is {@code Retry-After} — a 429 without one tells a client to back off and not by how
+	 * much, and the usual response to that is an immediate retry.
+	 */
+	@ExceptionHandler(RateLimitedException.class)
+	public ResponseEntity<ApiError> handleRateLimited(RateLimitedException ex) {
+		log.warn("Rate limited: {}", ex.getMessage());
+		return ResponseEntity.status(ex.getErrorCode().status())
+				.header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
+				.body(ApiError.of(ex.getErrorCode(), ex.getMessage()));
+	}
+
 	@ExceptionHandler(ApiException.class)
 	public ResponseEntity<ApiError> handleApiException(ApiException ex) {
 		ErrorCode code = ex.getErrorCode();

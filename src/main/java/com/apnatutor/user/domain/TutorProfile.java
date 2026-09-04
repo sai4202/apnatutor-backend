@@ -301,6 +301,26 @@ public class TutorProfile {
 		return responseRate;
 	}
 
+	/**
+	 * Erases the personal fields and takes the profile out of search (M5-10.3).
+	 *
+	 * <p>Unpublishing is the part that matters most: a deleted tutor still appearing in results
+	 * would put parents in touch with somebody who has left. The subjects, fees and locations are
+	 * left alone — they describe a service, not a person, and no query reaches them once the
+	 * profile is unpublished and the account is no longer ACTIVE.
+	 */
+	public void anonymise() {
+		this.displayName = null;
+		this.headline = null;
+		this.bio = null;
+		this.photoUrl = null;
+		this.gender = null;
+		this.dateOfBirth = null;
+		this.availabilityNote = null;
+		this.published = false;
+		this.publishedAt = null;
+	}
+
 	public boolean isPublished() {
 		return published;
 	}

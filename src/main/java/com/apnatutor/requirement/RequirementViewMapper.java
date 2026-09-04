@@ -18,6 +18,7 @@ import com.apnatutor.lead.domain.LeadUnlock;
 import com.apnatutor.lead.domain.UnlockStatus;
 import com.apnatutor.requirement.domain.Requirement;
 import com.apnatutor.requirement.dto.RequirementDtos.LeadPreview;
+import com.apnatutor.requirement.dto.RequirementDtos.ModerationView;
 import com.apnatutor.requirement.dto.RequirementDtos.RespondingTutor;
 import com.apnatutor.requirement.dto.RequirementDtos.StudentView;
 import com.apnatutor.user.TutorProfileRepository;
@@ -46,6 +47,7 @@ public class RequirementViewMapper {
 	private final LeadUnlockRepository unlocks;
 	private final UserRepository users;
 	private final TutorProfileRepository tutorProfiles;
+	private final RequirementRepository requirements;
 
 	public RequirementViewMapper(
 			SubjectRepository subjects,
@@ -54,7 +56,8 @@ public class RequirementViewMapper {
 			LocationRepository locations,
 			LeadUnlockRepository unlocks,
 			UserRepository users,
-			TutorProfileRepository tutorProfiles) {
+			TutorProfileRepository tutorProfiles,
+			RequirementRepository requirements) {
 		this.subjects = subjects;
 		this.gradeLevels = gradeLevels;
 		this.boards = boards;
@@ -62,6 +65,7 @@ public class RequirementViewMapper {
 		this.unlocks = unlocks;
 		this.users = users;
 		this.tutorProfiles = tutorProfiles;
+		this.requirements = requirements;
 	}
 
 	/** Catalog lookups, loaded once for a whole list rather than per row. */
@@ -162,5 +166,42 @@ public class RequirementViewMapper {
 				requirement.getExpiresAt(),
 				requirement.getCreatedAt(),
 				tutors);
+	}
+
+	/**
+	 * A moderator's view (M5-05.6).
+	 *
+	 * <p>The only projection of a requirement that carries the student's own phone number, and the
+	 * reason is the job: spam is recognised by seeing that one number posted eleven enquiries. The
+	 * dispute count is the other half of that picture, and it is fetched per row rather than
+	 * per list because this list is short by construction — it is a queue of things gone wrong, and
+	 * if it is ever long enough for the query count to matter, that is the problem to fix.
+	 */
+	@Transactional(readOnly = true)
+	public ModerationView toModerationView(Requirement requirement, Catalog catalog) {
+		String phone = users.findById(requirement.getStudentId())
+				.map(User::getPhone)
+				.orElse(null);
+
+		return new ModerationView(
+				requirement.getId(),
+				requirement.getStudentId(),
+				phone,
+				catalog.subjectName(requirement.getSubjectId()),
+				catalog.gradeName(requirement.getGradeLevelId()),
+				catalog.boardName(requirement.getBoardId()),
+				catalog.locationName(requirement.getLocationId()),
+				requirement.getMode(),
+				requirement.getBudgetAmountPaise(),
+				requirement.getBudgetUnit(),
+				requirement.getDescription(),
+				requirement.getStatus(),
+				requirement.getUnlockCostCredits(),
+				requirement.getUnlockCount(),
+				requirements.countDistinctDisputersFor(requirement.getId()),
+				requirement.getExpiresAt(),
+				requirement.getCreatedAt(),
+				requirement.getRemovedAt(),
+				requirement.getRemovalReason());
 	}
 }

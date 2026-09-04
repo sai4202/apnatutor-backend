@@ -170,4 +170,53 @@ public final class RequirementDtos {
 	@Schema(description = "What a lead would cost, quoted before posting")
 	public record PriceQuote(int credits, String explanation) {
 	}
+
+	// --- Moderation (M5-05.6) -------------------------------------------------------------------
+
+	@Schema(description = "Why an enquiry is being taken down. Shown to the student.")
+	public record RemoveRequest(
+			@NotBlank(message = "Say why this enquiry is being removed")
+			@Size(max = 500, message = "Keep the reason under 500 characters")
+			String reason) {
+	}
+
+	/**
+	 * A moderator's view of an enquiry.
+	 *
+	 * <p>Carries the student's phone number, which no other view of a requirement does. That is a
+	 * deliberate exception and the whole job: the way a fake enquiry is recognised is by seeing that
+	 * the same number posted eleven of them. A moderator who cannot see the number can only guess.
+	 * The endpoints serving this are {@code ADMIN}-only and every call is audit-logged at M5-08.
+	 */
+	@Schema(description = "A moderator's view. Includes the student's contact details.")
+	public record ModerationView(
+			Long id,
+			Long studentId,
+			String studentPhone,
+			String subject,
+			String gradeLevel,
+			String board,
+			String location,
+			String mode,
+			Long budgetAmountPaise,
+			String budgetUnit,
+			String description,
+			RequirementStatus status,
+			int unlockCostCredits,
+			@Schema(description = "Tutors who have paid for this lead")
+			int unlockCount,
+			@Schema(description = "How many different tutors have disputed it — the spam signal")
+			long disputedByTutors,
+			Instant expiresAt,
+			Instant postedAt,
+			Instant removedAt,
+			String removalReason) {
+	}
+
+	@Schema(description = "The outcome of a takedown, including what it cost the platform")
+	public record RemovalOutcome(
+			ModerationView requirement,
+			@Schema(description = "Tutors refunded because they had paid for this lead")
+			int tutorsRefunded) {
+	}
 }

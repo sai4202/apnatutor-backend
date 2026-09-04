@@ -43,5 +43,30 @@ public enum NotificationType {
 	REVIEW_REJECTED,
 
 	/** A student: the tutor you reviewed has answered, and the answer is now public. */
-	REVIEW_REPLY_PUBLISHED
+	REVIEW_REPLY_PUBLISHED,
+
+	// --- Moderation (M5-05) --------------------------------------------------------------------
+
+	/**
+	 * Anyone: your account has been blocked, and why.
+	 *
+	 * <p>Sent even though a suspended user cannot log in to read it in the app — it is the record of
+	 * what they were told, and the SMS channel still reaches them.
+	 */
+	ACCOUNT_SUSPENDED,
+
+	/** Anyone: your account is active again. */
+	ACCOUNT_REINSTATED,
+
+	/** A student: your enquiry was taken down by a moderator, and why. */
+	REQUIREMENT_REMOVED,
+
+	/**
+	 * Anyone: the thing you reported has been looked at, and what came of it.
+	 *
+	 * <p>Sent whether the report was upheld or dismissed. A report that vanishes into silence
+	 * teaches the person who filed it that reporting does nothing, and they are usually the only
+	 * witness to whatever happened.
+	 */
+	ABUSE_REPORT_REVIEWED
 }

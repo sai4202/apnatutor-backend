@@ -110,6 +110,15 @@ public class TutorSearchRepository {
 		// Not optional, not a parameter. An unpublished profile is a draft.
 		conditions.add("tp.is_published = TRUE");
 
+		// Nor is this one. A suspended tutor must vanish from search the moment they are suspended
+		// (M5-05.3). Enforced in the query rather than by unpublishing the profile on suspension: a
+		// flag that every future code path has to remember to set is one that will eventually not
+		// be set, and the failure mode is a blocked account still taking enquiries. The lookup is
+		// on the primary key of users, one index hit per candidate row.
+		conditions.add("""
+				EXISTS (SELECT 1 FROM users u
+				        WHERE u.id = tp.user_id AND u.status = 'ACTIVE')""");
+
 		if (hasText(query.subject())) {
 			conditions.add("""
 					EXISTS (SELECT 1 FROM tutor_subjects ts

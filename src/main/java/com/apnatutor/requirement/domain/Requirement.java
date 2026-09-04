@@ -100,6 +100,20 @@ public class Requirement {
 	@Column(name = "updated_at", insertable = false, updatable = false)
 	private Instant updatedAt;
 
+	// --- Moderator removal (M5-05.6) -----------------------------------------------------------
+	//
+	// Current state, like the suspension fields on User. The reason is sent to the student, so it
+	// cannot live only in the audit log.
+
+	@Column(name = "removed_at")
+	private Instant removedAt;
+
+	@Column(name = "removal_reason", columnDefinition = "text")
+	private String removalReason;
+
+	@Column(name = "removed_by")
+	private Long removedBy;
+
 	protected Requirement() {
 		// Required by JPA.
 	}
@@ -197,6 +211,62 @@ public class Requirement {
 		}
 	}
 
+	/**
+	 * A moderator takes the enquiry down (M5-05.6).
+	 *
+	 * <p>Allowed from any state except {@code REMOVED}. Spam is often only recognised after the
+	 * enquiry has capped out or expired — by then several tutors have paid for it, which is exactly
+	 * the case where a takedown matters most.
+	 *
+	 * <p>{@code REMOVED} rather than {@code CLOSED}: closing is something a student does to their
+	 * own enquiry. Collapsing the two would make "how many did we take down?" unanswerable and
+	 * would show the student their own withdrawal in place of a moderation notice.
+	 *
+	 * @throws IllegalStateException if it has already been removed
+	 * @throws IllegalArgumentException if the reason is blank
+	 */
+	public void removeByModerator(Long adminUserId, String reason, Instant at) {
+		if (status == RequirementStatus.REMOVED) {
+			throw new IllegalStateException("This requirement has already been removed");
+		}
+		if (reason == null || reason.isBlank()) {
+			throw new IllegalArgumentException("A removal needs a reason");
+		}
+
+		this.status = RequirementStatus.REMOVED;
+		this.removedAt = at;
+		this.removalReason = reason.strip();
+		this.removedBy = adminUserId;
+	}
+
+	/**
+	 * Puts a wrongly-removed enquiry back.
+	 *
+	 * <p>The destination state is <strong>recomputed</strong> from expiry and the unlock count
+	 * rather than remembered from before the removal. A stored previous state can restore to
+	 * something that is no longer possible — an enquiry that expired while it was down, or one whose
+	 * slots were freed by the refunds the removal itself issued.
+	 *
+	 * @throws IllegalStateException if it is not currently removed
+	 */
+	public void restore(Instant now) {
+		if (status != RequirementStatus.REMOVED) {
+			throw new IllegalStateException("This requirement is not removed");
+		}
+
+		this.removedAt = null;
+		this.removalReason = null;
+		this.removedBy = null;
+
+		if (!now.isBefore(expiresAt)) {
+			this.status = RequirementStatus.EXPIRED;
+		} else if (unlockCount >= unlockCap) {
+			this.status = RequirementStatus.CAPPED;
+		} else {
+			this.status = RequirementStatus.OPEN;
+		}
+	}
+
 	private void requireActive() {
 		if (status != RequirementStatus.OPEN && status != RequirementStatus.CAPPED) {
 			throw new IllegalStateException(
@@ -279,6 +349,19 @@ public class Requirement {
 
 	public Instant getExpiresAt() {
 		return expiresAt;
+	}
+
+	public Instant getRemovedAt() {
+		return removedAt;
+	}
+
+	/** Sent to the student. Non-null exactly when the status is REMOVED. */
+	public String getRemovalReason() {
+		return removalReason;
+	}
+
+	public Long getRemovedBy() {
+		return removedBy;
 	}
 
 	public Instant getCreatedAt() {

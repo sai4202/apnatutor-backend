@@ -286,13 +286,17 @@ public class TutorProfileService {
 		return toOwnerView(getOrCreate(userId));
 	}
 
-	/** The public projection. Only published profiles are visible. */
+	/**
+	 * The public projection. Only published profiles owned by an account in good standing.
+	 *
+	 * <p>The suspension check is in the query rather than a {@code filter} here — see
+	 * {@link TutorProfileRepository#findPublishedActiveById}.
+	 */
 	@Transactional(readOnly = true)
 	public PublicView getPublicProfile(Long profileId) {
 		// The collections load lazily inside this read-only transaction; see the note on
 		// TutorProfileRepository for why they are not join-fetched.
-		TutorProfile profile = profiles.findById(profileId)
-				.filter(TutorProfile::isPublished)
+		TutorProfile profile = profiles.findPublishedActiveById(profileId)
 				.orElseThrow(() -> ApiException.notFound("Tutor"));
 		return toPublicView(profile);
 	}

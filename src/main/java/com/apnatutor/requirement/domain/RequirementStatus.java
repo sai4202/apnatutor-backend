@@ -22,5 +22,13 @@ public enum RequirementStatus {
 	CLOSED,
 
 	/** Timed out after 30 days (SOURCE_OF_TRUTH.md §3.4). */
-	EXPIRED
+	EXPIRED,
+
+	/**
+	 * Taken down by a moderator as spam or a fake lead (M5-05.6).
+	 *
+	 * <p>Distinct from {@link #CLOSED}, which is the student's own withdrawal. Every tutor who had
+	 * paid for it is refunded when it enters this state — we charged for a lead that was not real.
+	 */
+	REMOVED
 }

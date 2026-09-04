@@ -45,6 +45,21 @@ apnatutor:
     provider: local
     local-path: ./build/test-uploads
 
+  # Effectively off for the suite as a whole. Every test drives MockMvc from the
+  # same loopback address, so a realistic per-IP limit would have the ~220
+  # requests of a full run throttle each other and fail tests for reasons that
+  # have nothing to do with what they assert.
+  #
+  # The filter still RUNS with these values, which is deliberate: a change that
+  # broke it outright would still show up. RateLimitTest sets its own low limits
+  # via @TestPropertySource, and gets its own context for them.
+  rate-limit:
+    auth-per-minute: 100000
+    admin-per-minute: 100000
+    public-per-minute: 100000
+    api-per-minute: 100000
+    unlocks-per-hour-per-tutor: 100000
+
 logging:
   level:
     com.apnatutor: DEBUG

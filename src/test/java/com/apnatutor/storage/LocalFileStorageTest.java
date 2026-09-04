@@ -33,6 +33,8 @@ class LocalFileStorageTest {
 				new AppProperties.Sms("console"),
 				new AppProperties.Storage("local", root.toString()),
 				new AppProperties.Dev(false, "123456"),
+				// Irrelevant to file storage; any valid values will do.
+				new AppProperties.RateLimit(20, 120, 3000, 300, 30),
 				new AppProperties.Razorpay("", "", ""));
 	}
 

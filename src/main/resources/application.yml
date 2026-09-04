@@ -97,6 +97,22 @@ apnatutor:
     max-attempts: 5
     max-sends-per-hour: 5
 
+  # Per-IP allowances per minute (M5-07). Sized for "one address behaving badly",
+  # not "one person behaving normally": Indian mobile networks use carrier-grade
+  # NAT heavily, so one address can be a whole neighbourhood.
+  #
+  # public-per-minute is large on purpose. The Next.js frontend renders public
+  # pages server-side, so every SEO page view reaches /api/v1/public/** from the
+  # frontend server's single address rather than the visitor's, unless the
+  # deployment forwards X-Forwarded-For. See PENDING T21.
+  rate-limit:
+    auth-per-minute: ${APNATUTOR_RATE_AUTH:20}
+    admin-per-minute: ${APNATUTOR_RATE_ADMIN:120}
+    public-per-minute: ${APNATUTOR_RATE_PUBLIC:3000}
+    api-per-minute: ${APNATUTOR_RATE_API:300}
+    # Per tutor, per hour. Not an IP limit - see LeadUnlockService.
+    unlocks-per-hour-per-tutor: ${APNATUTOR_RATE_UNLOCKS:30}
+
   # Local development conveniences. EVERY ONE OF THESE IS A SECURITY HOLE IN
   # PRODUCTION - they seed accounts with a published OTP and return generated
   # codes in API responses.

@@ -34,6 +34,8 @@ class DevModeGuardTest {
 				new AppProperties.Sms(smsProvider),
 				new AppProperties.Storage("local", "./uploads"),
 				new AppProperties.Dev(devEnabled, "123456"),
+				// Irrelevant to what this test asserts; any valid values will do.
+				new AppProperties.RateLimit(20, 120, 3000, 300, 30),
 				razorpay);
 	}
 

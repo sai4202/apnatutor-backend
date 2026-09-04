@@ -55,6 +55,32 @@ public class User {
 	@Column(name = "last_active_at")
 	private Instant lastActiveAt;
 
+	// --- Suspension (M5-05.3) ------------------------------------------------------------------
+	//
+	// Current state, not history. The audit log (M5-08) records who decided what and when; these
+	// three answer "is this account blocked right now, and what do we tell them" on the login path,
+	// which cannot afford a scan of an append-only table.
+
+	@Column(name = "suspended_at")
+	private Instant suspendedAt;
+
+	/** Shown to the user at login. Mandatory whenever the status is SUSPENDED — see V17. */
+	@Column(name = "suspension_reason", columnDefinition = "text")
+	private String suspensionReason;
+
+	@Column(name = "suspended_by")
+	private Long suspendedBy;
+
+	/**
+	 * When personal data was erased (M5-10).
+	 *
+	 * <p>The row itself is never removed: the credit ledger and the audit log both reference it
+	 * and both are append-only, so deleting it would either cascade rows out of an immutable
+	 * ledger or leave dangling references in one.
+	 */
+	@Column(name = "deleted_at")
+	private Instant deletedAt;
+
 	// Written by the database (DEFAULT now() and the set_updated_at trigger), so they are read-only
 	// here. Letting JPA write them would mean two sources of truth for the same fact.
 	@Column(name = "created_at", insertable = false, updatable = false)
@@ -94,6 +120,53 @@ public class User {
 		this.lastActiveAt = at;
 	}
 
+	/**
+	 * Blocks the account.
+	 *
+	 * <p>The reason is required rather than optional, and it is required <em>here</em> rather than
+	 * only at the controller: it is shown to the suspended user, and it is the only thing that makes
+	 * the decision reviewable by whoever picks up the appeal. A blank reason produces an account
+	 * nobody can explain and nobody dares reinstate.
+	 *
+	 * @throws IllegalStateException if the account is already suspended, or has been deleted
+	 * @throws IllegalArgumentException if the reason is blank
+	 */
+	public void suspend(Long adminUserId, String reason, Instant at) {
+		if (status == UserStatus.DELETED) {
+			throw new IllegalStateException("A deleted account cannot be suspended");
+		}
+		if (status == UserStatus.SUSPENDED) {
+			throw new IllegalStateException("This account is already suspended");
+		}
+		if (reason == null || reason.isBlank()) {
+			throw new IllegalArgumentException("A suspension needs a reason");
+		}
+
+		this.status = UserStatus.SUSPENDED;
+		this.suspendedAt = at;
+		this.suspensionReason = reason.strip();
+		this.suspendedBy = adminUserId;
+	}
+
+	/**
+	 * Lifts a suspension.
+	 *
+	 * <p>Clears the reason as well as the status. Leaving a stale reason on an active account is how
+	 * a future screen ends up showing "suspended for fraud" next to a user in good standing.
+	 *
+	 * @throws IllegalStateException if the account is not currently suspended
+	 */
+	public void reinstate() {
+		if (status != UserStatus.SUSPENDED) {
+			throw new IllegalStateException("This account is not suspended");
+		}
+
+		this.status = UserStatus.ACTIVE;
+		this.suspendedAt = null;
+		this.suspensionReason = null;
+		this.suspendedBy = null;
+	}
+
 	public Long getId() {
 		return id;
 	}
@@ -128,6 +201,55 @@ public class User {
 
 	public Instant getLastActiveAt() {
 		return lastActiveAt;
+	}
+
+	/**
+	 * Erases the personal data on this account, keeping the row.
+	 *
+	 * <p>The phone is replaced rather than cleared, because the column is NOT NULL, uniquely
+	 * indexed and CHECKed against E.164 — three constraints that between them rule out null, a
+	 * constant and free text. {@code +99} is not an assigned country code, so a value built from
+	 * it can never collide with a real number, and appending the id keeps it unique by
+	 * construction.
+	 *
+	 * @throws IllegalStateException if the account has already been erased
+	 */
+	public void anonymise(Instant at) {
+		if (status == UserStatus.DELETED) {
+			throw new IllegalStateException("This account has already been deleted");
+		}
+
+		this.phone = "+99" + String.format("%010d", id);
+		this.email = null;
+		this.passwordHash = null;
+		this.status = UserStatus.DELETED;
+		this.deletedAt = at;
+		this.phoneVerifiedAt = null;
+		this.emailVerifiedAt = null;
+		// A suspension reason is a note about a person who no longer has an account here.
+		this.suspensionReason = null;
+		this.suspendedAt = null;
+		this.suspendedBy = null;
+	}
+
+	public boolean isDeleted() {
+		return status == UserStatus.DELETED;
+	}
+
+	public Instant getDeletedAt() {
+		return deletedAt;
+	}
+
+	public Instant getSuspendedAt() {
+		return suspendedAt;
+	}
+
+	public String getSuspensionReason() {
+		return suspensionReason;
+	}
+
+	public Long getSuspendedBy() {
+		return suspendedBy;
 	}
 
 	public Instant getCreatedAt() {

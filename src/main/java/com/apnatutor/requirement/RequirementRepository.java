@@ -1,6 +1,7 @@
 package com.apnatutor.requirement;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,6 +19,10 @@ import org.springframework.data.repository.query.Param;
 public interface RequirementRepository extends JpaRepository<Requirement, Long> {
 
 	List<Requirement> findByStudentIdOrderByCreatedAtDesc(Long studentId);
+
+	long countByStudentId(Long studentId);
+
+	long countByStudentIdAndStatus(Long studentId, RequirementStatus status);
 
 	/**
 	 * Loads a requirement with a {@code SELECT ... FOR UPDATE} row lock.
@@ -145,4 +150,55 @@ public interface RequirementRepository extends JpaRepository<Requirement, Long> 
 	int expireOlderThan(@Param("now") Instant now);
 
 	long countByStatus(RequirementStatus status);
+
+	// --- Moderation (M5-05.6) --------------------------------------------------------------------
+
+	Page<Requirement> findByStatusOrderByCreatedAtDesc(RequirementStatus status, Pageable pageable);
+
+	Page<Requirement> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+	/** What a moderator has taken down, most recent first. Backed by requirements_removed_idx. */
+	Page<Requirement> findByStatusOrderByRemovedAtDesc(RequirementStatus status, Pageable pageable);
+
+	List<Requirement> findByStudentIdAndStatusIn(
+			Long studentId, Collection<RequirementStatus> statuses);
+
+	/**
+	 * Live enquiries several different tutors have disputed — the moderation queue that matters.
+	 *
+	 * <p>{@code RefundService} already logs this pattern, and logging was always the placeholder: a
+	 * warning nobody greps is not a queue. One tutor disputing many leads may simply be bad at phone
+	 * calls, but three <em>different</em> tutors disputing the same enquiry is a fact about that
+	 * enquiry, and it is the only way a fake requirement ever comes to light.
+	 *
+	 * <p>{@code COUNT(DISTINCT tutor_id)}, not {@code COUNT(*)} — the unique index on {@code
+	 * unlock_id} stops a tutor disputing one unlock twice, but says nothing about one tutor
+	 * disputing several unlocks of the same requirement, which cannot happen today and would quietly
+	 * become a way to frame a student if it ever did.
+	 *
+	 * <p>Already-removed enquiries are excluded: this queue is work to do, and a moderator who has
+	 * to re-skip the same rows stops reading it.
+	 */
+	@Query(value = """
+			SELECT r.* FROM requirements r
+			WHERE r.status <> 'REMOVED'
+			  AND (SELECT COUNT(DISTINCT rr.tutor_id) FROM refund_requests rr
+			       WHERE rr.requirement_id = r.id) >= :minDisputes
+			ORDER BY r.created_at DESC
+			""",
+			countQuery = """
+			SELECT COUNT(*) FROM requirements r
+			WHERE r.status <> 'REMOVED'
+			  AND (SELECT COUNT(DISTINCT rr.tutor_id) FROM refund_requests rr
+			       WHERE rr.requirement_id = r.id) >= :minDisputes
+			""",
+			nativeQuery = true)
+	Page<Requirement> findDisputedAtLeast(@Param("minDisputes") int minDisputes, Pageable pageable);
+
+	/** How many different tutors have disputed one enquiry. Shown next to it in the queue. */
+	@Query(value = """
+			SELECT COUNT(DISTINCT rr.tutor_id) FROM refund_requests rr
+			WHERE rr.requirement_id = :requirementId
+			""", nativeQuery = true)
+	long countDistinctDisputersFor(@Param("requirementId") Long requirementId);
 }

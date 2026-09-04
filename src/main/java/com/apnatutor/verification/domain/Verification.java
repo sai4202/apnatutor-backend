@@ -118,6 +118,17 @@ public class Verification {
 		return status;
 	}
 
+	/**
+	 * Forgets the uploaded scan (M5-10.2).
+	 *
+	 * <p>The verification row stays — it is the record that a check happened, and a tutor's
+	 * verified badge is meaningful to the parents who already relied on it. What goes is the
+	 * pointer to the Aadhaar or PAN image, which is destroyed separately.
+	 */
+	public void forgetDocument() {
+		this.documentUrl = null;
+	}
+
 	public String getDocumentUrl() {
 		return documentUrl;
 	}

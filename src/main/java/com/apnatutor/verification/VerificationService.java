@@ -5,6 +5,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 
+import com.apnatutor.audit.AuditContext;
 import com.apnatutor.common.exception.ApiException;
 import com.apnatutor.common.web.ErrorCode;
 import com.apnatutor.storage.FileKind;
@@ -109,8 +110,10 @@ public class VerificationService {
 
 		verifications.save(verification);
 
-		// Deliberately logged at INFO with the reviewer's id: an approval is a trust decision
-		// somebody may have to answer for later. A full audit table arrives at M5-08.
+		auditDecision("VERIFICATION_APPROVED", verification, null);
+
+		// Still logged at INFO alongside the audit entry: the log line carries the correlation id
+		// that ties this decision to the rest of the request, and costs nothing.
 		log.info("Verification APPROVED: id={} user={} type={} by admin={}",
 				verificationId, verification.getUserId(), verification.getType(), adminUserId);
 
@@ -137,6 +140,8 @@ public class VerificationService {
 		}
 
 		verifications.save(verification);
+
+		auditDecision("VERIFICATION_REJECTED", verification, reason);
 
 		log.info("Verification REJECTED: id={} user={} type={} by admin={}",
 				verificationId, verification.getUserId(), verification.getType(), adminUserId);
@@ -195,5 +200,24 @@ public class VerificationService {
 			case EDUCATION -> "education certificate";
 			case EMAIL -> "email";
 		};
+	}
+
+	/**
+	 * Records a verification decision (M5-08.2).
+	 *
+	 * <p>Worth auditing even though the row itself already stores {@code reviewed_by} and
+	 * {@code reviewed_at}: those are current state and can be overwritten by the next decision on
+	 * the same submission, whereas an approval that was later reversed is exactly the sequence
+	 * somebody will want to reconstruct.
+	 */
+	private static void auditDecision(String action, Verification verification, String reason) {
+		AuditContext.describe(action, "VERIFICATION", verification.getId());
+		AuditContext.summarise(reason);
+		AuditContext.before(AuditContext.fields("status", VerificationStatus.PENDING.name()));
+		AuditContext.after(AuditContext.fields(
+				"status", verification.getStatus().name(),
+				"type", verification.getType().name(),
+				"userId", verification.getUserId(),
+				"reason", reason));
 	}
 }

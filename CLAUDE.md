@@ -55,4 +55,6 @@ Plus:
 
 ## Module layout
 
-`src/main/java/com/apnatutor/` — one package per bounded module: `auth`, `user`, `catalog`, `search`, `requirement`, `lead`, `billing`, `review`, `verification`, `notification`, `admin`, `common`. Each has `controller / service / repository / domain / dto`.
+`src/main/java/com/apnatutor/` — one package per bounded module: `auth`, `user`, `catalog`, `search`, `requirement`, `lead`, `billing`, `review`, `verification`, `notification`, `settings`, `storage`, `audit`, `admin`, `common`. Each has `controller / service / repository / domain / dto`.
+
+`audit` is the one every module may depend on and which depends on none of them: it records what admins do, so putting it inside `admin` would invert the dependency for the services in `user`, `requirement` and `billing` that describe their own changes to it.

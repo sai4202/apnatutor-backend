@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import com.apnatutor.audit.AuditContext;
 import com.apnatutor.common.exception.ApiException;
 import com.apnatutor.common.web.ErrorCode;
 import com.apnatutor.lead.LeadUnlockRepository;
@@ -258,8 +259,11 @@ public class ReviewService {
 	@Transactional
 	public Review approve(Long reviewId, Long adminUserId) {
 		Review review = load(reviewId);
+		ModerationStatus previous = review.getStatus();
 		apply(() -> review.approve(adminUserId, clock.instant()));
 		reviews.save(review);
+
+		auditReview("REVIEW_APPROVED", review, previous.name(), null);
 
 		// Order matters: the aggregate is rewritten from the table, so the row must be flushed
 		// first. recomputeRatingFor flushes and then clears the persistence context for exactly
@@ -283,8 +287,11 @@ public class ReviewService {
 	@Transactional
 	public Review reject(Long reviewId, Long adminUserId, String reason) {
 		Review review = load(reviewId);
+		ModerationStatus previous = review.getStatus();
 		apply(() -> review.reject(adminUserId, reason, clock.instant()));
 		reviews.save(review);
+
+		auditReview("REVIEW_REJECTED", review, previous.name(), reason);
 
 		notifications.notify(
 				review.getStudentId(),
@@ -309,9 +316,12 @@ public class ReviewService {
 	@Transactional
 	public Review unpublish(Long reviewId, Long adminUserId) {
 		Review review = load(reviewId);
+		ModerationStatus previous = review.getStatus();
 		apply(() -> review.unpublish(adminUserId, clock.instant()));
 		reviews.save(review);
 		reviews.recomputeRatingFor(review.getTutorId());
+
+		auditReview("REVIEW_UNPUBLISHED", review, previous.name(), null);
 
 		log.info("Review WITHDRAWN: id={} tutor={} by admin={}",
 				reviewId, review.getTutorId(), adminUserId);
@@ -321,8 +331,11 @@ public class ReviewService {
 	@Transactional
 	public Review approveReply(Long reviewId, Long adminUserId) {
 		Review review = load(reviewId);
+		ModerationStatus previousReply = review.getTutorReplyStatus();
 		apply(() -> review.approveReply(adminUserId));
 		reviews.save(review);
+
+		auditReply("REVIEW_REPLY_APPROVED", review, previousReply);
 
 		notifications.notify(
 				review.getStudentId(),
@@ -338,8 +351,13 @@ public class ReviewService {
 	@Transactional
 	public Review rejectReply(Long reviewId, Long adminUserId) {
 		Review review = load(reviewId);
+		ModerationStatus previousReply = review.getTutorReplyStatus();
 		apply(() -> review.rejectReply(adminUserId));
-		return reviews.save(review);
+		reviews.save(review);
+
+		auditReply("REVIEW_REPLY_REJECTED", review, previousReply);
+
+		return review;
 	}
 
 	/**
@@ -384,6 +402,42 @@ public class ReviewService {
 			throw new ApiException(ErrorCode.REVIEW_NOT_ELIGIBLE,
 					"You can only review a tutor who has responded to one of your enquiries.");
 		}
+	}
+
+	/**
+	 * Records a moderation decision on a review (M5-08.2).
+	 *
+	 * <p>A helper rather than five copies: five call sites spelling out the same four fields is
+	 * five chances for one of them to record the wrong status, and a wrong audit entry is worse
+	 * than no audit entry — it is evidence that points somewhere else.
+	 */
+	private static void auditReview(
+			String action, Review review, String previousStatus, String reason) {
+
+		AuditContext.describe(action, "REVIEW", review.getId());
+		AuditContext.summarise(reason);
+		AuditContext.before(AuditContext.fields("status", previousStatus));
+		AuditContext.after(AuditContext.fields(
+				"status", review.getStatus().name(),
+				"tutorId", review.getTutorId(),
+				"rating", review.getRating(),
+				"reason", reason));
+	}
+
+	/** The same, for the tutor's reply — decided independently of the review it answers. */
+	private static void auditReply(
+			String action, Review review, ModerationStatus previousReplyStatus) {
+
+		AuditContext.describe(action, "REVIEW", review.getId());
+		AuditContext.before(AuditContext.fields(
+				"replyStatus", previousReplyStatus == null ? null : previousReplyStatus.name()));
+		AuditContext.after(AuditContext.fields(
+				"replyStatus",
+				review.getTutorReplyStatus() == null ? null : review.getTutorReplyStatus().name(),
+				"tutorId", review.getTutorId(),
+				// The review's own status, so an entry makes plain that refusing an answer left the
+				// criticism published.
+				"reviewStatus", review.getStatus().name()));
 	}
 
 	private Review load(Long reviewId) {
